@@ -1,0 +1,42 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# production
+build/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# debug
+npm-debug.log*
+
+# ide
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# os
+.DS_Store
+Thumbs.db
+
+# ide
+.idea/
+*.iml
+tsconfig.tsbuildinfo
+temp_patch.json
+
+# data
+data/
+*.db
+*.db-journal
+*.db-wal
+
+# drizzle
+drizzle/
