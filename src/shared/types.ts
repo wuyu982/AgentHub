@@ -68,6 +68,8 @@ export interface AgentRecord {
   adapterName: AdapterName
   modelProvider: ModelProvider | null
   modelId: string | null
+  apiKey: string | null
+  baseURL: string | null
   toolNames: string[]
   isBuiltin: boolean
   isOrchestrator: boolean

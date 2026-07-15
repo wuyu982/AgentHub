@@ -24,6 +24,8 @@ export async function POST(req: NextRequest) {
     adapterName = 'openai-compatible',
     modelProvider = null,
     modelId = null,
+    apiKey = null,
+    baseURL = null,
     toolNames = [],
   } = body
 
@@ -36,6 +38,8 @@ export async function POST(req: NextRequest) {
     adapterName,
     modelProvider,
     modelId,
+    apiKey,
+    baseURL,
     toolNames,
     isBuiltin: false,
     isOrchestrator: false,

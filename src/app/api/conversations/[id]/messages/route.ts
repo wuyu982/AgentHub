@@ -8,6 +8,7 @@ import { messages, conversations } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { eventBus } from '@/server/event-bus'
+import { runAgent } from '@/server/agent-runner'
 
 export async function POST(
   req: NextRequest,
@@ -18,8 +19,8 @@ export async function POST(
   const { content, mentionedAgentIds = [] } = body
 
   // 检查会话是否存在
-  const conv = await db.select().from(conversations).where(eq(conversations.id, conversationId))
-  if (conv.length === 0) {
+  const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId))
+  if (!conv) {
     return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
   }
 
@@ -61,7 +62,14 @@ export async function POST(
     messageId: userMessage.id,
   })
 
-  // TODO: Phase 2 — 触发 AgentRunner 执行
+  // 选定响应的 agent：优先 @mention，否则取会话内第一个
+  const targetAgentId = mentionedAgentIds[0] ?? conv.agentIds[0]
+  if (targetAgentId) {
+    // 不 await：让 Agent 在后台流式响应，API 立即返回
+    runAgent(conversationId, targetAgentId, userMessage.id).catch((err) => {
+      console.error('[messages] runAgent failed:', err)
+    })
+  }
 
   return NextResponse.json(userMessage, { status: 201 })
 }

@@ -10,6 +10,8 @@ export const agents = sqliteTable('agents', {
   adapterName: text('adapter_name').notNull().default('openai-compatible'),
   modelProvider: text('model_provider'),
   modelId: text('model_id'),
+  apiKey: text('api_key'),      // per-agent key，最高优先级；空则回退全局设置/env
+  baseURL: text('base_url'),    // 自定义兼容端点，空则回退全局设置/env
   toolNames: text('tool_names', { mode: 'json' }).notNull().$type<string[]>().default([]),
   isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
   isOrchestrator: integer('is_orchestrator', { mode: 'boolean' }).notNull().default(false),

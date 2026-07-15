@@ -78,21 +78,22 @@ L1  Persistence         src/db/** + Milvus client
 
 ## 实施阶段
 
-### Phase 1: 项目骨架 + 基础设施
+### Phase 1: 项目骨架 + 基础设施 ✅
 - [x] 初始化 Next.js + TypeScript + Tailwind + shadcn
-- [ ] SQLite + Drizzle schema（agents, conversations, messages, agent_runs）
-- [ ] 基础 API 路由结构
-- [ ] SSE 事件总线（EventBus → stream route）
-- [ ] Zustand store + StreamEvent reducer 骨架
-- [ ] 项目配置（.env, eslint, tsconfig）
+- [x] SQLite + Drizzle schema（agents, conversations, messages, agent_runs, app_settings）
+- [x] 基础 API 路由结构
+- [x] SSE 事件总线（EventBus → stream route）
+- [x] Zustand store + StreamEvent reducer 骨架
+- [x] 项目配置（.env, eslint, tsconfig）
 
-### Phase 2: 单 Agent 对话（跑通核心链路）
-- [ ] OpenAI 兼容 Adapter（支持 DeepSeek/OpenAI/火山方舟等）
-- [ ] AgentRunner 基础流程（接收消息 → 调 adapter → 流式返回）
-- [ ] 消息 parts 模型（text / thinking / tool_use / tool_result）
-- [ ] 前端 IM 界面（会话列表 + 聊天面板 + 输入框）
-- [ ] SSE 实时流式渲染
-- [ ] Agent 管理（CRUD + 内置 Agent seed）
+### Phase 2: 单 Agent 对话（跑通核心链路）✅
+- [x] OpenAI 兼容 Adapter（支持 DeepSeek/OpenAI/火山方舟等）
+- [x] AgentRunner 基础流程（接收消息 → 调 adapter → 流式返回）
+- [x] 消息 parts 模型（text / thinking / tool_use / tool_result）
+- [x] 前端 IM 界面（会话列表 + 聊天面板 + 输入框）
+- [x] SSE 实时流式渲染
+- [x] Agent 管理（CRUD + 内置 Agent seed）
+- [x] 凭证解析（per-agent apiKey/baseURL → app_settings → env，见 CLAUDE.md §5.2）
 
 ### Phase 3: 多 Agent + 群聊
 - [ ] 群聊模式（多 Agent 加入一个 Conversation）
