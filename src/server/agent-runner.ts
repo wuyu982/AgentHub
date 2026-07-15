@@ -35,16 +35,29 @@ export async function runAgent(conversationId: string, agentId: string, triggerM
         agentId,
         triggerMessageId,
     })
-    //3.查对话历史
-    const dbMessages = await db.select().from(messages).where(eq(messages.conversationId,conversationId))
-    const history: AdapterMessage[] = dbMessages.map((m) => ({
-        role: m.role === 'agent' ? 'assistant' as const: m.role as 'user' | 'system',
-        content: (m.parts as Array<{ type: string; content?: string}>)
+    //3.查对话历史 + 群聊 attribution：其他 agent 的发言带 [名字] 前缀，当前 agent 的发言算 assistant
+    const dbMessages = await db.select().from(messages).where(eq(messages.conversationId, conversationId))
+    const allAgents = await db.select().from(agents)
+    const nameById = new Map(allAgents.map((a) => [a.id, a.name]))
+
+    const extractText = (parts: unknown) =>
+        (parts as Array<{ type: string; content?: string }>)
             .filter((p) => p.type === 'text')
             .map((p) => p.content ?? '')
-            .join(''),
+            .join('')
 
-    }))
+    const history: AdapterMessage[] = dbMessages
+        .map((m): AdapterMessage | null => {
+            const text = extractText(m.parts)
+            if (!text) return null
+            if (m.role === 'system') return { role: 'system', content: text }
+            if (m.role === 'user') return { role: 'user', content: text }
+            // 当前 agent 自己的发言算 assistant；其他 agent 作为上下文输入并标注来源
+            if (m.agentId === agentId) return { role: 'assistant', content: text }
+            const speaker = (m.agentId && nameById.get(m.agentId)) || 'Agent'
+            return { role: 'user', content: `[${speaker}]: ${text}` }
+        })
+        .filter((m): m is AdapterMessage => m !== null)
 
     //4.选适配器，解析凭证，准备中止控制器与消息 id
     const adapter = getAdapter(agent.adapterName)

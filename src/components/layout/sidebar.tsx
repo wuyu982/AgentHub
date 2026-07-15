@@ -1,35 +1,26 @@
 'use client'
 
+import { useState } from 'react'
 import { useAppStore } from '@/stores/app-store'
 import { Plus, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { NewConversationDialog } from '@/components/layout/new-conversation-dialog'
 
 export function Sidebar() {
   const conversations = useAppStore((s) => s.conversations)
   const currentId = useAppStore((s) => s.currentConversationId)
   const setCurrentConversation = useAppStore((s) => s.setCurrentConversation)
-  const addConversation = useAppStore((s) => s.addConversation)
 
-  const handleNew = async () => {
-    const res = await fetch('/api/conversations', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: '新对话' }),
-    })
-    if (res.ok) {
-      const conv = await res.json()
-      addConversation(conv)
-      setCurrentConversation(conv.id)
-    }
-  }
+  const [dialogOpen, setDialogOpen] = useState(false)
 
   return (
+    <>
     <aside className="flex h-full w-64 flex-col border-r bg-card">
       {/* 头部 */}
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h1 className="text-lg font-semibold">AgentHub</h1>
         <button
-          onClick={handleNew}
+          onClick={() => setDialogOpen(true)}
           className="rounded-md p-1.5 hover:bg-accent"
           title="新建对话"
         >
@@ -61,5 +52,7 @@ export function Sidebar() {
         ))}
       </nav>
     </aside>
+    {dialogOpen && <NewConversationDialog onClose={() => setDialogOpen(false)} />}
+    </>
   )
 }

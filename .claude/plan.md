@@ -96,11 +96,20 @@ L1  Persistence         src/db/** + Milvus client
 - [x] 凭证解析（per-agent apiKey/baseURL → app_settings → env，见 CLAUDE.md §5.2）
 
 ### Phase 3: 多 Agent + 群聊
-- [ ] 群聊模式（多 Agent 加入一个 Conversation）
-- [ ] @mention 路由（消息指定 Agent 响应）
-- [ ] Orchestrator Agent（拆任务 + 调度子 Agent）
-- [ ] dispatch plan 可视化
-- [ ] 跨 run 对话历史（context 序列化注入）
+
+**线 1｜群聊路由（基本完成，剩 @autocomplete UI）**
+- [x] 群聊模式（建会话挂载多 Agent + agentIds 写入）
+- [x] 群聊 history attribution（其他 agent 发言带 [名字] 前缀，跨 agent 上下文可辨识）
+- [x] 多 Agent 并发路由（显式 @mention → 并发触发被 @ 的 agent）
+- [x] AI 意图路由（群聊无 @ 时按消息意图选出一个 agent 回应；非 Orchestrator，无 tool-loop）
+- [ ] @mention autocomplete UI（输入 @ 弹候选、显式覆盖 AI 判断）
+
+**线 2｜工具调用循环（未开始，Orchestrator 的前置依赖）**
+- [ ] adapter 传 tools → 吐 tool.call → runner 执行 → 回灌 tool_result 的多轮循环
+
+**线 3｜Orchestrator（依赖线 2，未开始）**
+- [ ] Orchestrator Agent（dispatch_to_agent 工具 + 拆任务，走同一 AgentRunner）
+- [ ] dispatch plan 可视化（复用 tool_use / tool_result parts）
 
 ### Phase 4: RAG 知识库系统
 - [ ] Milvus 客户端封装（连接管理 / collection CRUD）

@@ -7,16 +7,30 @@ import { db } from '@/db/client'
 import { messages, conversations } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
+import { z } from 'zod'
 import { eventBus } from '@/server/event-bus'
 import { runAgent } from '@/server/agent-runner'
+import { routeToAgent } from '@/server/agent-router'
+
+const messageBodySchema = z.object({
+  content: z.string().min(1),
+  mentionedAgentIds: z.array(z.string()).default([]),
+})
 
 export async function POST(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id: conversationId } = await params
-  const body = await req.json()
-  const { content, mentionedAgentIds = [] } = body
+
+  const parsed = messageBodySchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: 'Invalid request body', details: parsed.error.flatten() },
+      { status: 400 }
+    )
+  }
+  const { content, mentionedAgentIds } = parsed.data
 
   // 检查会话是否存在
   const [conv] = await db.select().from(conversations).where(eq(conversations.id, conversationId))
@@ -62,13 +76,28 @@ export async function POST(
     messageId: userMessage.id,
   })
 
-  // 选定响应的 agent：优先 @mention，否则取会话内第一个
-  const targetAgentId = mentionedAgentIds[0] ?? conv.agentIds[0]
-  if (targetAgentId) {
-    // 不 await：让 Agent 在后台流式响应，API 立即返回
-    runAgent(conversationId, targetAgentId, userMessage.id).catch((err) => {
-      console.error('[messages] runAgent failed:', err)
+  // 后台触发一个 agent 的流式响应（不 await，API 立即返回）
+  const fireRun = (agentId: string) =>
+    runAgent(conversationId, agentId, userMessage.id).catch((err) => {
+      console.error(`[messages] runAgent failed (agent=${agentId}):`, err)
     })
+
+  // 路由：
+  //   显式 @mention → 会话内被 @ 的所有 agent 并发（过滤掉不在会话里的）
+  //   单聊无 @      → 唯一 agent
+  //   群聊无 @      → AI 路由器异步选出一个 agent（不阻塞 API 响应）
+  if (mentionedAgentIds.length > 0) {
+    for (const agentId of mentionedAgentIds.filter((id) => conv.agentIds.includes(id))) {
+      fireRun(agentId)
+    }
+  } else if (conv.mode === 'single') {
+    if (conv.agentIds[0]) fireRun(conv.agentIds[0])
+  } else {
+    routeToAgent(conv.agentIds, content)
+      .then((agentId) => {
+        if (agentId) fireRun(agentId)
+      })
+      .catch((err) => console.error('[messages] routeToAgent failed:', err))
   }
 
   return NextResponse.json(userMessage, { status: 201 })

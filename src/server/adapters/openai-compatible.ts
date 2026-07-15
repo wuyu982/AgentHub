@@ -42,4 +42,26 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
     if (started) yield { type: 'text.end' }
     yield { type: 'done' }
   }
+
+  async complete(request: AdapterRequest, signal?: AbortSignal): Promise<string> {
+    if (!request.apiKey) {
+      throw new Error(`OpenAICompatibleAdapter.complete 缺少 apiKey（model=${request.model}）`)
+    }
+
+    const client = new OpenAI({ apiKey: request.apiKey, baseURL: request.baseURL })
+
+    const res = await client.chat.completions.create(
+      {
+        model: request.model,
+        messages: [
+          ...(request.systemPrompt ? [{ role: 'system' as const, content: request.systemPrompt }] : []),
+          ...request.messages,
+        ],
+        ...(request.jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
+      },
+      { signal },
+    )
+
+    return res.choices[0]?.message?.content ?? ''
+  }
 }

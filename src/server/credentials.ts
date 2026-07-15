@@ -15,19 +15,20 @@ export interface ResolvedCredentials {
   model: string
 }
 
-export async function resolveCredentials(agent: AgentRow): Promise<ResolvedCredentials> {
+// agent 为 null 时解析全局凭证（用于路由器等非 agent 场景）
+export async function resolveCredentials(agent: AgentRow | null): Promise<ResolvedCredentials> {
   const rows = await db.select().from(appSettings)
   const settings: Record<string, string> = {}
   for (const row of rows) settings[row.key] = row.value
 
   const apiKey =
-    agent.apiKey || settings['openai_api_key'] || process.env.OPENAI_API_KEY || ''
+    agent?.apiKey || settings['openai_api_key'] || process.env.OPENAI_API_KEY || ''
 
   const baseURL =
-    agent.baseURL || settings['openai_base_url'] || process.env.OPENAI_BASE_URL || undefined
+    agent?.baseURL || settings['openai_base_url'] || process.env.OPENAI_BASE_URL || undefined
 
   const model =
-    agent.modelId || settings['default_model'] || process.env.DEFAULT_MODEL || DEFAULT_MODEL_ID
+    agent?.modelId || settings['default_model'] || process.env.DEFAULT_MODEL || DEFAULT_MODEL_ID
 
   return { apiKey, baseURL, model }
 }

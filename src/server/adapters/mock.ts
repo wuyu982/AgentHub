@@ -19,4 +19,8 @@ export class MockAdapter implements LLMAdapter{
         yield { type: "text.end"}
         yield { type: "done"}
     }
+
+    async complete(): Promise<string> {
+        return 'Mock complete 响应'
+    }
 }

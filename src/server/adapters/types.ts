@@ -15,6 +15,7 @@ export interface AdapterRequest {
     model: string
     apiKey: string
     baseURL?: string
+    jsonMode?: boolean // complete() 时要求返回 JSON（OpenAI response_format）
 }
 
 export type AdapterEvent =
@@ -26,4 +27,6 @@ export type AdapterEvent =
 
 export interface LLMAdapter {
     run(request: AdapterRequest,signal: AbortSignal): AsyncGenerator<AdapterEvent>
+    // 非流式补全：用于路由 / 分类等需要完整结果的场景，返回完整文本
+    complete(request: AdapterRequest, signal?: AbortSignal): Promise<string>
 }
