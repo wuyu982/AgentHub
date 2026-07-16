@@ -218,6 +218,8 @@ export async function runAgent(
                 depth,
                 // 一级护栏：仅顶层 agent（depth=0）可派发子 agent
                 dispatch: depth === 0 ? dispatchChild(conversationId, triggerMessageId, depth) : undefined,
+                // Phase 4：注入该 agent 可查的 KB 范围，rag_search 无法越权
+                knowledgeBaseIds: agent.knowledgeBaseIds,
             })
 
             for (const res of results) {

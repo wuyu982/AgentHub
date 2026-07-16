@@ -32,3 +32,31 @@ export async function resolveCredentials(agent: AgentRow | null): Promise<Resolv
 
   return { apiKey, baseURL, model }
 }
+
+// Embedding 凭证：独立于对话 LLM。优先级 app_settings > env（不涉及 per-agent，模型在建 KB 时定死）。
+// model 参数为已建 KB 存下的 embeddingModel，覆盖全局默认；缺失 key 交由调用处抛错。
+export async function resolveEmbeddingCredentials(model?: string): Promise<ResolvedCredentials> {
+  const rows = await db.select().from(appSettings)
+  const settings: Record<string, string> = {}
+  for (const row of rows) settings[row.key] = row.value
+
+  const apiKey = settings['embedding_api_key'] || process.env.EMBEDDING_API_KEY || ''
+  const baseURL = settings['embedding_base_url'] || process.env.EMBEDDING_BASE_URL || undefined
+  const resolvedModel =
+    model || settings['embedding_model'] || process.env.EMBEDDING_MODEL || 'text-embedding-3-small'
+
+  return { apiKey, baseURL, model: resolvedModel }
+}
+
+// Rerank 凭证：优先级 app_settings > env。key 可空——调用处据此降级为向量分数排序，不阻断检索。
+export async function resolveRerankCredentials(): Promise<ResolvedCredentials> {
+  const rows = await db.select().from(appSettings)
+  const settings: Record<string, string> = {}
+  for (const row of rows) settings[row.key] = row.value
+
+  const apiKey = settings['rerank_api_key'] || process.env.RERANK_API_KEY || ''
+  const baseURL = settings['rerank_base_url'] || process.env.RERANK_BASE_URL || undefined
+  const model = settings['rerank_model'] || process.env.RERANK_MODEL || ''
+
+  return { apiKey, baseURL, model }
+}
