@@ -71,6 +71,7 @@ export interface AgentRecord {
   apiKey: string | null
   baseURL: string | null
   toolNames: string[]
+  knowledgeBaseIds: string[] // 可检索的知识库范围
   isBuiltin: boolean
   isOrchestrator: boolean
   createdAt: number
@@ -83,4 +84,35 @@ export interface ConversationRecord {
   agentIds: string[]
   createdAt: number
   updatedAt: number
+}
+
+// ─── RAG 知识库实体（向量存 Milvus，元数据存 SQLite）──────────
+export interface KnowledgeBaseRecord {
+  id: string
+  name: string
+  description: string
+  embeddingModel: string
+  collectionName: string
+  createdAt: number
+}
+
+export interface DocumentRecord {
+  id: string
+  knowledgeBaseId: string
+  filename: string
+  mimeType: string
+  status: 'pending' | 'processing' | 'ready' | 'failed'
+  error: string | null
+  chunkCount: number
+  createdAt: number
+}
+
+export interface ChunkRecord {
+  id: string
+  documentId: string
+  knowledgeBaseId: string
+  content: string
+  chunkIndex: number
+  vectorId: string
+  createdAt: number
 }

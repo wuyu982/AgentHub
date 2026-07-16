@@ -27,6 +27,7 @@ export async function POST(req: NextRequest) {
     apiKey = null,
     baseURL = null,
     toolNames = [],
+    knowledgeBaseIds = [],
   } = body
 
   const agent = {
@@ -41,6 +42,7 @@ export async function POST(req: NextRequest) {
     apiKey,
     baseURL,
     toolNames,
+    knowledgeBaseIds,
     isBuiltin: false,
     isOrchestrator: false,
     createdAt: new Date(),

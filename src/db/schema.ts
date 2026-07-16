@@ -13,6 +13,7 @@ export const agents = sqliteTable('agents', {
   apiKey: text('api_key'),      // per-agent key，最高优先级；空则回退全局设置/env
   baseURL: text('base_url'),    // 自定义兼容端点，空则回退全局设置/env
   toolNames: text('tool_names', { mode: 'json' }).notNull().$type<string[]>().default([]),
+  knowledgeBaseIds: text('knowledge_base_ids', { mode: 'json' }).notNull().$type<string[]>().default([]), // 可检索的知识库范围
   isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),
   isOrchestrator: integer('is_orchestrator', { mode: 'boolean' }).notNull().default(false),
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
@@ -58,4 +59,37 @@ export const agentRuns = sqliteTable('agent_runs', {
 export const appSettings = sqliteTable('app_settings', {
   key: text('key').primaryKey(),
   value: text('value').notNull(),
+})
+
+// ─── Knowledge Bases ────────────────────────────────────────
+export const knowledgeBases = sqliteTable('knowledge_bases', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  description: text('description').notNull().default(''),
+  embeddingModel: text('embedding_model').notNull(), // 向量化模型，建库时定死（决定向量维度）
+  collectionName: text('collection_name').notNull(), // 对应的 Milvus collection 名
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+// ─── Documents ──────────────────────────────────────────────
+export const documents = sqliteTable('documents', {
+  id: text('id').primaryKey(),
+  knowledgeBaseId: text('knowledge_base_id').notNull().references(() => knowledgeBases.id, { onDelete: 'cascade' }),
+  filename: text('filename').notNull(),
+  mimeType: text('mime_type').notNull().default(''),
+  status: text('status', { enum: ['pending', 'processing', 'ready', 'failed'] }).notNull().default('pending'),
+  error: text('error'), // status=failed 时的原因
+  chunkCount: integer('chunk_count').notNull().default(0),
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
+// ─── Chunks ─────────────────────────────────────────────────
+export const chunks = sqliteTable('chunks', {
+  id: text('id').primaryKey(),
+  documentId: text('document_id').notNull().references(() => documents.id, { onDelete: 'cascade' }),
+  knowledgeBaseId: text('knowledge_base_id').notNull().references(() => knowledgeBases.id, { onDelete: 'cascade' }), // 冗余：检索合并/按 KB 删除少一次 join
+  content: text('content').notNull(), // 分块原文，检索命中后回灌用
+  chunkIndex: integer('chunk_index').notNull(), // 在文档内的顺序
+  vectorId: text('vector_id').notNull(), // Milvus 主键，双写对齐
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
