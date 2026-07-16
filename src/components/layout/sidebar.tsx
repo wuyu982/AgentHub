@@ -5,6 +5,7 @@ import { useAppStore } from '@/stores/app-store'
 import { Plus, MessageSquare } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NewConversationDialog } from '@/components/layout/new-conversation-dialog'
+import { ThemeToggle } from '@/components/theme-toggle'
 
 export function Sidebar() {
   const conversations = useAppStore((s) => s.conversations)
@@ -19,13 +20,16 @@ export function Sidebar() {
       {/* 头部 */}
       <div className="flex items-center justify-between border-b px-4 py-3">
         <h1 className="text-lg font-semibold">AgentHub</h1>
-        <button
-          onClick={() => setDialogOpen(true)}
-          className="rounded-md p-1.5 hover:bg-accent"
-          title="新建对话"
-        >
-          <Plus className="h-4 w-4" />
-        </button>
+        <div className="flex items-center gap-1">
+          <ThemeToggle />
+          <button
+            onClick={() => setDialogOpen(true)}
+            className="rounded-md p-1.5 hover:bg-accent"
+            title="新建对话"
+          >
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
       </div>
 
       {/* 会话列表 */}

@@ -106,12 +106,56 @@ L1  Persistence         src/db/** + Milvus client
 
 > 线 1 完成。修复 chat-panel selector 无限渲染、globals.css 补 @theme 语义色映射（Tailwind 4）。
 
-**线 2｜工具调用循环（未开始，Orchestrator 的前置依赖）**
-- [ ] adapter 传 tools → 吐 tool.call → runner 执行 → 回灌 tool_result 的多轮循环
+**线 2｜工具调用循环 ✅**
+- [x] adapter 传 tools → 吐 tool.call → runner 执行 → 回灌 tool_result 的多轮循环
 
-**线 3｜Orchestrator（依赖线 2，未开始）**
-- [ ] Orchestrator Agent（dispatch_to_agent 工具 + 拆任务，走同一 AgentRunner）
-- [ ] dispatch plan 可视化（复用 tool_use / tool_result parts）
+子任务拆解：
+- [x] ① 工具系统骨架 `src/server/tools/`（types/registry/executor/builtin，不碰已锁定契约）
+- [x] ② adapter 契约扩展（`AdapterRequest.tools`、`AdapterMessage` 改判别联合承载 tool_calls/tool 结果、新增 `AdapterToolCall`）
+- [x] ③ openai-compatible 实现工具流（按 index 拼接 `delta.tool_calls` → 完整后吐 `tool.call`）
+- [x] ④ runAgent 循环化（while agentic loop，硬上限 8 轮，交错落 text/tool_use/tool_result parts，返回 finalText）
+
+> 关键决策落地：tool_use/tool_result 复用 `part.start` 通道推前端（不加新事件，前端 reducer 无需改）；
+> runAgent 现返回 `Promise<string>`（finalText），为线 3 dispatch 收集子 agent 产出预留；ctx.depth 传 0。
+
+**① 工具系统骨架 — 接口设计（本次落地）**
+
+目录 `src/server/tools/`：`types.ts` / `registry.ts` / `executor.ts` / `builtin/get-current-time.ts`
+
+- `ToolDef`：`{ name, description, parameters(JSONSchema), execute(args: unknown, ctx): Promise<ToolResult> }`
+  - `args: unknown`，工具内部自行 zod narrow（LLM 输出是不可信边界）
+- `ToolContext`：`{ conversationId, runId, signal, depth }`；`workspace`/`dispatch` 注释预留（Phase 5 / 线 3 接入，加法扩展）
+  - `depth` 现在就定，线 2 传 0，供线 3 递归护栏用，省一次契约改动
+- `ToolResult`：`{ result: unknown, isError: boolean }`；工具失败是正常业务流，不 throw，只有 signal abort 才冒泡
+- `JSONSchema`：手写最小结构 `{ type:'object'; properties; required? }`，不引 json-schema-to-ts（YAGNI）
+- `registry`：显式集中注册（非 import 即注册，避免 Next.js 热重载重复注册）；`resolveTools` 对未知 name warn 跳过
+- `executor.executeTools`：`Promise.all` 并发，结果带 callId 顺序对齐，兜错为 isError，abort 冒泡
+- 验证工具 `get_current_time`：无参纯函数，只为跑通「LLM 决定调用 → 执行 → 回灌 → 再生成」闭环
+
+决策：`get_current_time` 作验证工具 / 显式集中注册 / JSONSchema 手写 —— 均已确认。
+`ToolSchema`（喂 adapter 的形状）与 `AdapterRequest.tools` 属②的契约变更，届时另行确认。
+
+**线 3｜Orchestrator ✅**
+- [x] Orchestrator Agent（dispatch_to_agent 工具 + 拆任务，走同一 AgentRunner）
+- [x] dispatch plan 可视化（复用 tool_use / tool_result parts + message-list 渲染工具 part）
+
+> 落地决策（已确认）：
+> - 方案 B：子 agent 独立在群里发消息（走自己的 runAgent + message 事件），Orchestrator 用 tool_result 收其产出
+> - task 传递用方案 A：dispatchChild 把 task 落库为 user 消息（parentMessageId 指向触发消息，mentionedAgentIds 记目标），可追溯
+> - `dispatch_to_agent` execute 内查会话校验 agentId 在会话内；zod 校验入参
+> - 两道一级护栏：ctx.dispatch 仅 depth=0 注入；depth>0 时工具集过滤掉 dispatch_to_agent
+> - `ToolContext` 加 `DispatchFn`（runner 注入，工具层不依赖 runner）；executor 整个 ctx 透传无需改
+> - 前端：message-list.tsx 补 tool_use/tool_result 渲染（details 折叠）；artifact_ref 仍留 Phase 5
+
+### 前端界面优化（穿插进行，纯 L5 表现层，不碰契约）
+
+**梯队一 ✅**
+- [x] markdown 渲染（react-markdown + remark-gfm，已装依赖；代码块带复制按钮 + 轻量 prose 样式，不引 typography 插件）
+- [x] 消息布局重做：左右气泡（IM 风）+ 每 agent 强调色（agentAccent 哈希色相）+ 圆形头像 + 时间戳 + 工具卡片美化 + 流式光标
+- [x] 暗色模式切换（引 next-themes；ThemeProvider + ThemeToggle，globals.css 变量已现成）
+
+**梯队二（未开始）**：手动脚手架 shadcn（保护 Tailwind4 CSS-first 样式，不跑 init）+ 替换手写 Dialog/Button/Input + sidebar 增强（会话图标/成员头像堆叠）+ 顶部栏（标题+成员+连接状态）
+**梯队三（未开始）**：空状态插画、消息进入动画、滚动/流式细节
 
 ### Phase 4: RAG 知识库系统
 - [ ] Milvus 客户端封装（连接管理 / collection CRUD）
