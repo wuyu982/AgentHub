@@ -102,7 +102,9 @@ L1  Persistence         src/db/** + Milvus client
 - [x] 群聊 history attribution（其他 agent 发言带 [名字] 前缀，跨 agent 上下文可辨识）
 - [x] 多 Agent 并发路由（显式 @mention → 并发触发被 @ 的 agent）
 - [x] AI 意图路由（群聊无 @ 时按消息意图选出一个 agent 回应；非 Orchestrator，无 tool-loop）
-- [ ] @mention autocomplete UI（输入 @ 弹候选、显式覆盖 AI 判断）
+- [x] @mention autocomplete UI（输入 @ 弹候选、显式覆盖 AI 判断）
+
+> 线 1 完成。修复 chat-panel selector 无限渲染、globals.css 补 @theme 语义色映射（Tailwind 4）。
 
 **线 2｜工具调用循环（未开始，Orchestrator 的前置依赖）**
 - [ ] adapter 传 tools → 吐 tool.call → runner 执行 → 回灌 tool_result 的多轮循环
