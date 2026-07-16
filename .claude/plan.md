@@ -165,19 +165,64 @@ L1  Persistence         src/db/** + Milvus client
 **梯队三（未开始）**：空状态插画、消息进入动画、滚动/流式细节
 
 ### Phase 4: RAG 知识库系统
-- [ ] Milvus 客户端封装（连接管理 / collection CRUD）
-- [ ] KnowledgeBase + Document + Chunk 实体（SQLite 元数据）
-- [ ] 文档 Ingestion Pipeline：
-  - 上传文档（PDF/MD/TXT/代码文件）
-  - 文本提取 + 分块（支持 fixed-size / recursive / semantic）
-  - 调 Embedding API 向量化
-  - 写入 Milvus collection
-- [ ] RAG 检索工具（`rag_search`）：
-  - 接受自然语言 query
-  - embedding → Milvus ANN 检索 → rerank
-  - 返回 top-k chunks 作为 context
-- [ ] Agent 绑定知识库（配置哪些 Agent 可访问哪些 KB）
-- [ ] 知识库管理 UI（创建/上传/状态/检索测试）
+
+> 设计已定稿（2026-07-16 讨论）。以下为动手前的契约与决策，实施仍按子任务小步推进。
+
+**核心决策（已确认）**
+1. 检索 = 工具式 `rag_search`（LLM 决定何时查），非自动前置注入
+2. Agent 绑定 KB：`agent.knowledgeBaseIds` 决定可查范围；安全边界在 runner 收口
+3. Milvus 完整版（Docker），不用 Lite
+4. 一个 KB = 一个 Milvus collection（隔离干净、删库简单）
+5. 分块先做**固定分块**（fixed-size），其余策略留接口；size/overlap 动手时细聊
+
+**检索安全模型（关键）**
+- runner 把 `agent.knowledgeBaseIds` 注入 `ToolContext`，`rag_search` 只在这些库检索 —— LLM 无法越权（§5「LLM 输出不可信」）
+- `rag_search(query, kbHint?)`：LLM 只能传自然语言 query + 可选 hint
+- hint 匹配 = **档 1 关键词包含**（hint 与 KB name/description 子串匹配）；命中则缩小范围，匹配不到 fallback 查全部绑定库。不上 embedding 选库（过度设计）
+- 多库查询：各库 top-k → 合并按相似度全局 top-k → 回灌。召回效果后续实测再调
+
+**数据流**
+```
+写入侧：上传 → 文本提取 → 固定分块 → Embedding API → 写 Milvus collection
+        （Document 落 SQLite；Chunk 落 SQLite 元数据 + vectorId）
+读取侧：rag_search(query, kbHint?) → embedding(query) → hint 过滤绑定库
+        → 各库 Milvus ANN top-k → 合并全局 top-k → tool_result 回灌 LLM
+```
+
+**新增实体（SQLite 元数据；向量存 Milvus）**
+- `KnowledgeBase`：id / name / description / embeddingModel / collectionName / createdAt
+- `Document`：id / knowledgeBaseId / filename / mimeType / status(pending|processing|ready|failed) / chunkCount / createdAt
+- `Chunk`：id / documentId / knowledgeBaseId / content / chunkIndex / vectorId(Milvus 主键) / createdAt
+
+**契约变更（改前逐一贴字段确认，§6.2）**
+- `types.ts` + `schema.ts`：`AgentRecord.knowledgeBaseIds: string[]`（新增，默认 `[]`）
+- `tools/types.ts`：`ToolContext` 加 `knowledgeBaseIds?: string[]`（runner 注入，加法扩展）
+- 新增 3 实体的 schema 表 + `types.ts` Record 类型
+
+**新增服务（L3，`src/server/rag/`）**
+- `milvus-client.ts`：连接管理 + collection CRUD（建/删/查）
+- `embedding-service.ts`：调 Embedding API（凭证走 §5.2 优先级：per-agent 暂不涉及 → app_settings → env）
+- `chunking.ts`：固定分块（先一种，留策略接口）
+- `ingestion-service.ts`：文本提取 → 分块 → embedding → 写 Milvus + SQLite
+- `retrieval-service.ts`：query embedding → hint 过滤 → 多库检索 → 合并 top-k
+- `builtin/rag-search.ts`：`ToolDef`，走现有 executor，产出 tool_result（前端无需改）
+
+**子任务顺序（小步）** —— 全部完成（代码层，端到端验证待 Docker 起服务）
+- [x] ① schema + types：3 实体 + `AgentRecord.knowledgeBaseIds` + `ToolContext` 扩展
+- [x] ② Milvus 客户端封装（连接单例 + collection CRUD + 向量增删查，HNSW+COSINE）
+- [x] ③ embedding-service（`embedText`/`embedBatch`/`probeDimension`，凭证走 app_settings>env）
+- [x] ④ chunking 固定分块（size 500 / overlap 50 / 软切边界；纯函数已单测）
+- [x] ⑤ ingestion pipeline（Tika 提取 → 分块 → 向量化 → 先 Milvus 后 SQLite 双写）
+- [x] ⑥ retrieval-service + `rag_search`：两阶段（每库召回 20 → rerank 取 8，可降级）
+- [x] ⑦ runner 注入 `knowledgeBaseIds` 到 ToolContext（安全边界闭环）
+- [x] ⑧ 知识库管理 UI（侧边栏「知识库」导航项；建/删库 + 上传 + 状态 + 检索测试）+ API routes
+
+**已定实现细节**
+- 文本提取：Apache Tika Server（Docker，`latest-full` 全格式），Node 侧 fetch 调 REST，零 npm 依赖
+- rerank：独立 API（Jina/Cohere 兼容格式，默认硅基流动 bge-reranker-v2-m3），未配置自动降级为向量分数排序
+- 每 KB 一个 Milvus collection；维度建库时探测 embedding 模型确定；上传同步 ingestion（大文件异步化留后续）
+
+**待端到端验证（需起 Docker：Milvus + Tika）**：建库/上传/检索全链路、rerank 实际召回效果、UI 交互
 
 ### Phase 5: 工具系统 + Workspace
 - [ ] 工具注册表（ToolDef 接口）
