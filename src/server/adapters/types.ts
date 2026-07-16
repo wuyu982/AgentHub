@@ -2,12 +2,21 @@
  * LLM adapter 接口定义（L2）层
  * 所有适配器（OpenAi/Anthropic/Mock）都实现这套契约.
  */
-import type {MessagePart} from '@/shared/types';
+import type {ToolSchema} from '@/server/tools/types';
 
-export interface AdapterMessage {
-    role: 'user' | 'assistant' | 'system'
-    content: string
+// assistant 发起的一次工具调用（中立形态，各 adapter 自行翻译成 provider 格式）
+export interface AdapterToolCall {
+    callId: string
+    toolName: string
+    args: unknown
 }
+
+// 判别联合：tool 结果与 assistant 形状差异大，联合让 adapter switch(role) 时精确 narrow
+export type AdapterMessage =
+    | { role: 'system'; content: string }
+    | { role: 'user'; content: string }
+    | { role: 'assistant'; content: string; toolCalls?: AdapterToolCall[] } // 纯工具调用轮 content 可空串
+    | { role: 'tool'; callId: string; toolName: string; result: unknown; isError: boolean }
 
 export interface AdapterRequest {
     systemPrompt: string
@@ -16,6 +25,7 @@ export interface AdapterRequest {
     apiKey: string
     baseURL?: string
     jsonMode?: boolean // complete() 时要求返回 JSON（OpenAI response_format）
+    tools?: ToolSchema[] // 来自 tools/registry.ts 的 toToolSchemas()
 }
 
 export type AdapterEvent =

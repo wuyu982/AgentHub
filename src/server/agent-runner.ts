@@ -1,13 +1,40 @@
-import {AdapterMessage, LLMAdapter} from "@/server/adapters/types";
+import {AdapterMessage, AdapterToolCall, LLMAdapter} from "@/server/adapters/types";
 import type {MessagePart} from "@/shared/types";
 import {MockAdapter} from "@/server/adapters/mock";
 import {OpenAICompatibleAdapter} from "@/server/adapters/openai-compatible";
 import {resolveCredentials} from "@/server/credentials";
+import {resolveTools, toToolSchemas} from "@/server/tools/registry";
+import {executeTools} from "@/server/tools/executor";
 import {nanoid} from "nanoid";
 import {db} from "@/db/client";
 import {agents, messages} from "@/db/schema";
 import {eq} from "drizzle-orm";
 import {eventBus} from "@/server/event-bus";
+
+// 工具调用轮数硬上限，防止工具死循环烧 token
+const MAX_TOOL_ROUNDS = 8
+
+// dispatch_to_agent 的执行入口：把 task 落库为一条 user 消息（方案 A，群里可追溯），再跑子 agent
+function dispatchChild(conversationId: string, parentMessageId: string, depth: number) {
+    return async (agentId: string, task: string): Promise<string> => {
+        const taskMessageId = nanoid()
+        await db.insert(messages).values({
+            id: taskMessageId,
+            conversationId,
+            role: 'user',
+            agentId: null,
+            parts: [{ type: 'text', content: task }],
+            status: 'complete',
+            parentMessageId,
+            mentionedAgentIds: [agentId],
+            runId: null,
+            createdAt: new Date(),
+        })
+        eventBus.emit({ type: 'message.start', conversationId, timestamp: Date.now(), messageId: taskMessageId, agentId: '', runId: '' })
+        eventBus.emit({ type: 'message.end', conversationId, timestamp: Date.now(), messageId: taskMessageId })
+        return runAgent(conversationId, agentId, taskMessageId, depth + 1)
+    }
+}
 
 function getAdapter(adapterName: string): LLMAdapter {
     switch(adapterName){
@@ -20,7 +47,14 @@ function getAdapter(adapterName: string): LLMAdapter {
     }
 }
 
-export async function runAgent(conversationId: string, agentId: string, triggerMessageId: string) {
+// 返回 agent 的最终文本（最后一轮的文字产出），供线 3 dispatch_to_agent 收集子 agent 结果
+// depth：0=顶层 agent（可派发）；>0=被派发的子 agent（一级护栏：不再注入 dispatch）
+export async function runAgent(
+    conversationId: string,
+    agentId: string,
+    triggerMessageId: string,
+    depth = 0,
+): Promise<string> {
     const runId = nanoid()
     //1.查Agent配置
     const [agent] = await db.select().from(agents).where(eq(agents.id, agentId))
@@ -59,9 +93,13 @@ export async function runAgent(conversationId: string, agentId: string, triggerM
         })
         .filter((m): m is AdapterMessage => m !== null)
 
-    //4.选适配器，解析凭证，准备中止控制器与消息 id
+    //4.选适配器，解析凭证，准备工具集/中止控制器/消息 id
     const adapter = getAdapter(agent.adapterName)
     const credentials = await resolveCredentials(agent)
+    // 一级护栏：子 agent（depth>0）不暴露 dispatch_to_agent，防止无限自派发
+    const resolved = resolveTools(agent.toolNames)
+    const tools = depth > 0 ? resolved.filter((t) => t.name !== 'dispatch_to_agent') : resolved
+    const toolSchemas = tools.length ? toToolSchemas(tools) : undefined
     const controller = new AbortController()
     const messageId = nanoid()
 
@@ -75,62 +113,132 @@ export async function runAgent(conversationId: string, agentId: string, triggerM
         runId,
     })
 
-    // 累积各 part 的最终内容，供结束时落库
+    // 一条 agent 消息跨轮累积交错 parts（text / tool_use / tool_result）
     const parts: MessagePart[] = []
     let partIndex = -1
+    let finalText = ''
 
     try {
-        //6.遍历适配器事件流，翻译成 StreamEvent
-        for await (const event of adapter.run({
-            systemPrompt: agent.systemPrompt,
-            messages: history,
-            model: credentials.model,
-            apiKey: credentials.apiKey,
-            baseURL: credentials.baseURL,
-        }, controller.signal)) {
-            switch (event.type) {
-                case 'text.start': {
-                    partIndex++
-                    const part: MessagePart = { type: 'text', content: '' }
-                    parts[partIndex] = part
-                    eventBus.emit({
-                        type: "part.start",
-                        conversationId,
-                        timestamp: Date.now(),
-                        messageId,
-                        partIndex,
-                        part,
-                    })
-                    break
-                }
+        //6.agentic loop：每轮消费一次 adapter 流，收集 tool.call；无工具调用则收敛
+        for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+            let roundText = ''
+            const roundToolCalls: AdapterToolCall[] = []
 
-                case 'text.delta': {
-                    const part = parts[partIndex]
-                    if (part && part.type === 'text') part.content += event.text
-                    eventBus.emit({
-                        type: "part.delta",
-                        conversationId,
-                        timestamp: Date.now(),
-                        messageId,
-                        partIndex,
-                        delta: { type: 'text.append', text: event.text },
-                    })
-                    break
-                }
+            for await (const event of adapter.run({
+                systemPrompt: agent.systemPrompt,
+                messages: history,
+                model: credentials.model,
+                apiKey: credentials.apiKey,
+                baseURL: credentials.baseURL,
+                tools: toolSchemas,
+            }, controller.signal)) {
+                switch (event.type) {
+                    case 'text.start': {
+                        partIndex++
+                        const part: MessagePart = { type: 'text', content: '' }
+                        parts[partIndex] = part
+                        eventBus.emit({
+                            type: "part.start",
+                            conversationId,
+                            timestamp: Date.now(),
+                            messageId,
+                            partIndex,
+                            part,
+                        })
+                        break
+                    }
 
-                case 'text.end': {
-                    eventBus.emit({
-                        type: "part.end",
-                        conversationId,
-                        timestamp: Date.now(),
-                        messageId,
-                        partIndex,
-                    })
-                    break
-                }
+                    case 'text.delta': {
+                        const part = parts[partIndex]
+                        if (part && part.type === 'text') part.content += event.text
+                        roundText += event.text
+                        eventBus.emit({
+                            type: "part.delta",
+                            conversationId,
+                            timestamp: Date.now(),
+                            messageId,
+                            partIndex,
+                            delta: { type: 'text.append', text: event.text },
+                        })
+                        break
+                    }
 
-                case 'done':
-                    break
+                    case 'text.end': {
+                        eventBus.emit({
+                            type: "part.end",
+                            conversationId,
+                            timestamp: Date.now(),
+                            messageId,
+                            partIndex,
+                        })
+                        break
+                    }
+
+                    case 'tool.call': {
+                        // tool_use 作为一个 part 一次性推送（无 delta），与 tool_result 共用 part.start 通道
+                        partIndex++
+                        const part: MessagePart = {
+                            type: 'tool_use',
+                            callId: event.callId,
+                            toolName: event.toolName,
+                            args: event.args,
+                        }
+                        parts[partIndex] = part
+                        eventBus.emit({
+                            type: "part.start",
+                            conversationId,
+                            timestamp: Date.now(),
+                            messageId,
+                            partIndex,
+                            part,
+                        })
+                        roundToolCalls.push({ callId: event.callId, toolName: event.toolName, args: event.args })
+                        break
+                    }
+
+                    case 'done':
+                        break
+                }
+            }
+
+            // 本轮没有工具调用 → agent 已给出最终答复，收敛
+            if (roundToolCalls.length === 0) {
+                finalText = roundText
+                break
+            }
+
+            //6a.回灌本轮 assistant（含 toolCalls），再执行工具、回灌 tool 结果，进入下一轮
+            history.push({ role: 'assistant', content: roundText, toolCalls: roundToolCalls })
+
+            const toolCalls = roundToolCalls.map((tc) => ({ callId: tc.callId, toolName: tc.toolName, args: tc.args }))
+            const results = await executeTools(toolCalls, {
+                conversationId,
+                runId,
+                signal: controller.signal,
+                depth,
+                // 一级护栏：仅顶层 agent（depth=0）可派发子 agent
+                dispatch: depth === 0 ? dispatchChild(conversationId, triggerMessageId, depth) : undefined,
+            })
+
+            for (const res of results) {
+                const toolName = roundToolCalls.find((tc) => tc.callId === res.callId)?.toolName ?? ''
+                partIndex++
+                const part: MessagePart = {
+                    type: 'tool_result',
+                    callId: res.callId,
+                    result: res.result,
+                    isError: res.isError,
+                }
+                parts[partIndex] = part
+                eventBus.emit({
+                    type: "part.start",
+                    conversationId,
+                    timestamp: Date.now(),
+                    messageId,
+                    partIndex,
+                    part,
+                })
+                history.push({ role: 'tool', callId: res.callId, toolName, result: res.result, isError: res.isError })
             }
         }
 
@@ -161,6 +269,8 @@ export async function runAgent(conversationId: string, agentId: string, triggerM
             runId,
             status: 'complete',
         })
+
+        return finalText
     } catch (err) {
         // 失败时通知前端，不吞掉错误上下文
         eventBus.emit({

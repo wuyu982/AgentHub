@@ -1,9 +1,71 @@
 /**
  * OpenAI 兼容 Adapter（L2）—— 覆盖 OpenAI / DeepSeek / 火山方舟等兼容端点。
- * 只负责把 SDK 的流式 chunk 翻译成统一 AdapterEvent，不碰 DB。
+ * 只负责把统一 AdapterMessage/AdapterEvent 与 SDK 格式互相翻译，不碰 DB。
  */
 import OpenAI from 'openai'
-import { AdapterEvent, AdapterRequest, LLMAdapter } from '@/server/adapters/types'
+import type {
+  ChatCompletionMessageParam,
+  ChatCompletionTool,
+} from 'openai/resources/chat/completions'
+import { AdapterEvent, AdapterMessage, AdapterRequest, LLMAdapter } from '@/server/adapters/types'
+import type { ToolSchema } from '@/server/tools/types'
+
+// 中立 AdapterMessage → OpenAI 消息格式
+function toOpenAIMessages(systemPrompt: string, messages: AdapterMessage[]): ChatCompletionMessageParam[] {
+  const out: ChatCompletionMessageParam[] = []
+  if (systemPrompt) out.push({ role: 'system', content: systemPrompt })
+
+  for (const m of messages) {
+    switch (m.role) {
+      case 'system':
+      case 'user':
+        out.push({ role: m.role, content: m.content })
+        break
+      case 'assistant':
+        out.push({
+          role: 'assistant',
+          content: m.content || null,
+          ...(m.toolCalls?.length
+            ? {
+                tool_calls: m.toolCalls.map((tc) => ({
+                  id: tc.callId,
+                  type: 'function' as const,
+                  function: { name: tc.toolName, arguments: JSON.stringify(tc.args ?? {}) },
+                })),
+              }
+            : {}),
+        })
+        break
+      case 'tool':
+        out.push({
+          role: 'tool',
+          tool_call_id: m.callId,
+          content: typeof m.result === 'string' ? m.result : JSON.stringify(m.result),
+        })
+        break
+    }
+  }
+  return out
+}
+
+function toOpenAITools(tools?: ToolSchema[]): ChatCompletionTool[] | undefined {
+  if (!tools?.length) return undefined
+  return tools.map((t) => ({
+    type: 'function',
+    function: {
+      name: t.name,
+      description: t.description,
+      parameters: t.parameters as unknown as Record<string, unknown>,
+    },
+  }))
+}
+
+// 流式 tool_calls 按 index 累积（id/name 先到，arguments 逐片拼接）
+interface PendingToolCall {
+  callId: string
+  toolName: string
+  argsBuffer: string
+}
 
 export class OpenAICompatibleAdapter implements LLMAdapter {
   async *run(request: AdapterRequest, signal: AbortSignal): AsyncGenerator<AdapterEvent> {
@@ -18,28 +80,55 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
     const stream = await client.chat.completions.create(
       {
         model: request.model,
-        messages: [
-          ...(request.systemPrompt ? [{ role: 'system' as const, content: request.systemPrompt }] : []),
-          ...request.messages,
-        ],
+        messages: toOpenAIMessages(request.systemPrompt, request.messages),
+        ...(toOpenAITools(request.tools) ? { tools: toOpenAITools(request.tools) } : {}),
         stream: true,
       },
       { signal },
     )
 
-    let started = false
+    let textStarted = false
+    const pending = new Map<number, PendingToolCall>()
+
     for await (const chunk of stream) {
       if (signal.aborted) break
-      const delta = chunk.choices[0]?.delta?.content
-      if (!delta) continue
-      if (!started) {
-        started = true
-        yield { type: 'text.start' }
+      const choice = chunk.choices[0]
+      const delta = choice?.delta
+
+      // 文本增量
+      if (delta?.content) {
+        if (!textStarted) {
+          textStarted = true
+          yield { type: 'text.start' }
+        }
+        yield { type: 'text.delta', text: delta.content }
       }
-      yield { type: 'text.delta', text: delta }
+
+      // 工具调用增量：按 index 累积，等 finish 再统一吐 tool.call
+      if (delta?.tool_calls) {
+        for (const tc of delta.tool_calls) {
+          const slot = pending.get(tc.index) ?? { callId: '', toolName: '', argsBuffer: '' }
+          if (tc.id) slot.callId = tc.id
+          if (tc.function?.name) slot.toolName = tc.function.name
+          if (tc.function?.arguments) slot.argsBuffer += tc.function.arguments
+          pending.set(tc.index, slot)
+        }
+      }
     }
 
-    if (started) yield { type: 'text.end' }
+    if (textStarted) yield { type: 'text.end' }
+
+    // 拼接完成后一次性吐出各工具调用（参数解析失败时以空对象兜底，交由 executor/工具处理）
+    for (const slot of pending.values()) {
+      let args: unknown = {}
+      try {
+        args = slot.argsBuffer ? JSON.parse(slot.argsBuffer) : {}
+      } catch {
+        args = {}
+      }
+      yield { type: 'tool.call', callId: slot.callId, toolName: slot.toolName, args }
+    }
+
     yield { type: 'done' }
   }
 
@@ -53,10 +142,7 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
     const res = await client.chat.completions.create(
       {
         model: request.model,
-        messages: [
-          ...(request.systemPrompt ? [{ role: 'system' as const, content: request.systemPrompt }] : []),
-          ...request.messages,
-        ],
+        messages: toOpenAIMessages(request.systemPrompt, request.messages),
         ...(request.jsonMode ? { response_format: { type: 'json_object' as const } } : {}),
       },
       { signal },
