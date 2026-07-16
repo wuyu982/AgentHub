@@ -7,7 +7,7 @@ import { immer } from 'zustand/middleware/immer'
 import type { MessageRecord, AgentRecord, ConversationRecord, StreamEvent } from '@/shared/types'
 
 // 左侧导航对应的右侧主区视图
-export type ActiveView = 'chat' | 'agents' | 'monitor'
+export type ActiveView = 'chat' | 'agents' | 'knowledge' | 'monitor'
 
 interface AppState {
   // ─── Data ─────────────────────────────────────────
