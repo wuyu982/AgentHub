@@ -1,0 +1,82 @@
+# Milvus 完整版（standalone）本地开发环境
+# 完整版依赖 etcd（元数据）+ MinIO（对象存储），三容器编排，缺一不可。
+# 数据卷落在 data/volumes/ 下，已被 .gitignore 忽略，不会误提交向量数据。
+#
+# 启动： docker compose up -d
+# 状态： docker compose ps
+# 停止： docker compose down          （保留数据）
+# 清库： docker compose down -v        （删卷，慎用）
+# Milvus 服务地址： localhost:19530   （对应 .env 的 MILVUS_ADDRESS）
+
+services:
+  etcd:
+    container_name: agenthub-milvus-etcd
+    image: quay.io/coreos/etcd:v3.5.16
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - ./data/volumes/etcd:/etcd
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ['CMD', 'etcdctl', 'endpoint', 'health']
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  minio:
+    container_name: agenthub-milvus-minio
+    image: minio/minio:RELEASE.2023-03-20T20-16-18Z
+    environment:
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin
+    ports:
+      - '9001:9001' # MinIO 控制台（可选，浏览器访问 http://localhost:9001）
+      - '9000:9000' # MinIO API
+    volumes:
+      - ./data/volumes/minio:/minio_data
+    command: minio server /minio_data --console-address ":9001"
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  milvus:
+    container_name: agenthub-milvus-standalone
+    image: milvusdb/milvus:v2.4.15
+    command: ['milvus', 'run', 'standalone']
+    security_opt:
+      - seccomp:unconfined
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: minio:9000
+    volumes:
+      - ./data/volumes/milvus:/var/lib/milvus
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9091/healthz']
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+    ports:
+      - '19530:19530' # Milvus gRPC（客户端连这个端口）
+      - '9091:9091' # Milvus 监控/健康检查
+    depends_on:
+      - etcd
+      - minio
+
+  # Apache Tika Server —— 文档文本提取（PDF/Word/PPT/Excel/HTML 等全格式）
+  # Node 侧零依赖，仅通过 REST（PUT /tika）调用。full 版含全部格式解析器。
+  tika:
+    container_name: agenthub-tika
+    image: apache/tika:latest-full
+    ports:
+      - '9998:9998' # Tika REST API（对应 .env 的 TIKA_URL）
+    healthcheck:
+      test: ['CMD', 'wget', '-qO-', 'http://localhost:9998/tika']
+      interval: 30s
+      timeout: 10s
+      retries: 3
