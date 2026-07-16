@@ -6,6 +6,9 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { MessageRecord, AgentRecord, ConversationRecord, StreamEvent } from '@/shared/types'
 
+// 左侧导航对应的右侧主区视图
+export type ActiveView = 'chat' | 'agents' | 'monitor'
+
 interface AppState {
   // ─── Data ─────────────────────────────────────────
   conversations: ConversationRecord[]
@@ -13,10 +16,14 @@ interface AppState {
   messages: Record<string, MessageRecord[]> // conversationId → messages
   agents: AgentRecord[]
 
+  // ─── UI 视图状态 ───────────────────────────────────
+  activeView: ActiveView
+
   // ─── SSE 连接状态 ──────────────────────────────────
   connected: boolean
 
   // ─── Actions ──────────────────────────────────────
+  setActiveView: (view: ActiveView) => void
   setConversations: (conversations: ConversationRecord[]) => void
   setCurrentConversation: (id: string | null) => void
   addConversation: (conversation: ConversationRecord) => void
@@ -35,16 +42,24 @@ export const useAppStore = create<AppState>()(
     currentConversationId: null,
     messages: {},
     agents: [],
+    activeView: 'chat',
     connected: false,
+
+    setActiveView: (view) =>
+      set((state) => {
+        state.activeView = view
+      }),
 
     setConversations: (conversations) =>
       set((state) => {
         state.conversations = conversations
       }),
 
+    // 选中会话时自动回到对话视图，让会话列表也能作为常驻快捷入口
     setCurrentConversation: (id) =>
       set((state) => {
         state.currentConversationId = id
+        if (id) state.activeView = 'chat'
       }),
 
     addConversation: (conversation) =>

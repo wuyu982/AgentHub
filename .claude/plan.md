@@ -154,7 +154,14 @@ L1  Persistence         src/db/** + Milvus client
 - [x] 消息布局重做：左右气泡（IM 风）+ 每 agent 强调色（agentAccent 哈希色相）+ 圆形头像 + 时间戳 + 工具卡片美化 + 流式光标
 - [x] 暗色模式切换（引 next-themes；ThemeProvider + ThemeToggle，globals.css 变量已现成）
 
-**梯队二（未开始）**：手动脚手架 shadcn（保护 Tailwind4 CSS-first 样式，不跑 init）+ 替换手写 Dialog/Button/Input + sidebar 增强（会话图标/成员头像堆叠）+ 顶部栏（标题+成员+连接状态）
+**梯队二（进行中）**
+- [x] 侧边栏重构为分区布局：品牌区（渐变 logo + 中文副标题「多智能体协作工作台」+ 设置按钮占位）/ 主导航区（对话·智能体·模型流量监控，选中态竖条高亮）/ 会话列表区（分区标题 + 新建）
+  - store 新增 `activeView: 'chat' | 'agents' | 'monitor'`，右侧主区按视图渲染；选中会话自动切回 chat 视图
+  - `agents`/`monitor` 暂用 `PlaceholderView`（建设中占位），内容后续单独开 task
+  - 新增组件：`sidebar-nav.tsx`、`placeholder-view.tsx`
+- [ ] 设置面板（当前仅占位按钮，无行为）
+- [ ] 手动脚手架 shadcn（保护 Tailwind4 CSS-first 样式，不跑 init）+ 替换手写 Dialog/Button/Input
+- [ ] sidebar 会话项增强（会话图标/成员头像堆叠）+ 顶部栏（标题+成员+连接状态）
 **梯队三（未开始）**：空状态插画、消息进入动画、滚动/流式细节
 
 ### Phase 4: RAG 知识库系统
