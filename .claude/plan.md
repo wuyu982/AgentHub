@@ -64,7 +64,8 @@ L1  Persistence         src/db/** + Milvus client
 
 | 实体 | 职责 |
 |---|---|
-| Agent | AI 角色（名称/头像/prompt/adapter/model/工具集） |
+| Agent | AI 角色（名称/头像/prompt/工具集/modelConfigId 引用模型配置） |
+| ModelConfig | 模型配置（adapter/provider/modelId/baseURL/apiKey），Agent 纯引用，恰一条 isDefault |
 | Conversation | 对话/工作空间（单聊/群聊） |
 | Message | 结构化消息（parts 数组，非纯文本） |
 | KnowledgeBase | 知识库（名称/描述/embedding配置/关联collection） |
@@ -155,10 +156,10 @@ L1  Persistence         src/db/** + Milvus client
 - [x] 暗色模式切换（引 next-themes；ThemeProvider + ThemeToggle，globals.css 变量已现成）
 
 **梯队二（进行中）**
-- [x] 侧边栏重构为分区布局：品牌区（渐变 logo + 中文副标题「多智能体协作工作台」+ 设置按钮占位）/ 主导航区（对话·智能体·模型流量监控，选中态竖条高亮）/ 会话列表区（分区标题 + 新建）
-  - store 新增 `activeView: 'chat' | 'agents' | 'monitor'`，右侧主区按视图渲染；选中会话自动切回 chat 视图
-  - `agents`/`monitor` 暂用 `PlaceholderView`（建设中占位），内容后续单独开 task
+- [x] 侧边栏重构为分区布局：品牌区（渐变 logo + 中文副标题「多智能体协作工作台」+ 设置按钮占位）/ 主导航区（对话·智能体·模型·知识库·模型流量监控，选中态竖条高亮）/ 会话列表区（分区标题 + 新建）
+  - store 新增 `activeView: 'chat' | 'agents' | 'models' | 'knowledge' | 'monitor'`，右侧主区按视图渲染；选中会话自动切回 chat 视图
   - 新增组件：`sidebar-nav.tsx`、`placeholder-view.tsx`
+- [x] 智能体管理界面（`agents` 视图）：列表+详情双栏（仿 knowledge-panel），配置 prompt/模型/工具/知识库；补 `/api/agents/[id]` PUT/DELETE（内置禁删）+ `/api/tools`（工具多选）
 - [ ] 设置面板（当前仅占位按钮，无行为）
 - [ ] 手动脚手架 shadcn（保护 Tailwind4 CSS-first 样式，不跑 init）+ 替换手写 Dialog/Button/Input
 - [ ] sidebar 会话项增强（会话图标/成员头像堆叠）+ 顶部栏（标题+成员+连接状态）
@@ -232,7 +233,10 @@ L1  Persistence         src/db/** + Milvus client
 - [ ] Artifact 产物系统（web_app / document / code_file）
 
 ### Phase 6: 打磨 + 桌面版
-- [ ] 全局 API Key 设置面板
+- [x] 模型配置独立实体（`ModelConfig`）：抽离 Agent 内嵌的模型字段为独立实体，Agent 纯引用 `modelConfigId`；左侧「模型」栏 CRUD（列表+详情），Agent 只需下拉选择
+  - 凭证解析改走 ModelConfig：`resolveCredentials(modelConfigId)` → 指定/默认/env 三级兜底（见 CLAUDE.md §5.2）
+  - key 脱敏：所有面向前端的 API 经 `toModelConfigView` 只回 `hasApiKey`，明文绝不出服务端；PUT 留空视作不修改
+- [ ] 全局 API Key 设置面板（app_settings 全局兜底，齿轮入口）
 - [ ] Token 用量统计
 - [ ] Electron 桌面打包
 - [ ] 深色/浅色主题
