@@ -1,0 +1,2 @@
+{"query": "示例：AgentHub 的流式传输用什么技术？", "kbId": "REPLACE_WITH_YOUR_KB_ID", "reference": "AgentHub 使用 SSE（单连接）做流式传输，不用 WebSocket。", "ground_truth_contexts": ["流式传输 | SSE（单连接） | 不用 WebSocket"]}
+{"query": "示例：知识库向量存储用的是哪个数据库？", "kbId": "REPLACE_WITH_YOUR_KB_ID", "reference": "使用 Milvus 作为向量数据库，开发用 Milvus Lite 或 Docker。", "ground_truth_contexts": ["向量DB | Milvus（开发用 Milvus Lite / Docker）"]}

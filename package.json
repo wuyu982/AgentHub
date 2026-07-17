@@ -15,7 +15,11 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
+    "@langfuse/otel": "^5.9.1",
+    "@langfuse/tracing": "^5.9.1",
     "@libsql/client": "^0.17.4",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/sdk-node": "^0.220.0",
     "@zilliz/milvus2-sdk-node": "^2.5.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

@@ -1,0 +1,7 @@
+# Ragas RAG 评测旁挂依赖（独立于主项目 pnpm，用 Python venv）
+# 安装：python -m venv .venv && .venv/Scripts/activate && pip install -r requirements.txt
+ragas>=0.2.0
+datasets>=2.0.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+langchain-openai>=0.2.0

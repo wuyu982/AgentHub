@@ -12,6 +12,7 @@ import { inArray } from 'drizzle-orm'
 import { embedText } from '@/server/rag/embedding-service'
 import { searchVectors } from '@/server/rag/milvus-client'
 import { rerank, isRerankAvailable } from '@/server/rag/rerank-service'
+import { withSpan } from '@/server/tracing/span'
 
 const RECALL_PER_KB = 20 // 每库召回候选数（宁多勿漏）
 const FINAL_TOP_K = 8 // 精排后回灌 LLM 的条数
@@ -45,44 +46,67 @@ export async function retrieve(
   kbHint?: string,
   signal?: AbortSignal
 ): Promise<RetrievalHit[]> {
-  const targets = filterByHint(kbs, kbHint)
-  if (targets.length === 0) return []
+  return withSpan('rag:retrieve', 'retriever', async (span) => {
+    span.update({ input: { query, kbCount: kbs.length, kbHint } })
 
-  const queryVector = await embedText(query, targets[0].embeddingModel, signal)
+    const targets = filterByHint(kbs, kbHint)
+    if (targets.length === 0) return []
 
-  // 各库并发召回
-  const perKb = await Promise.all(
-    targets.map(async (kb) => {
-      const hits = await searchVectors(kb.collectionName, queryVector, RECALL_PER_KB)
-      return hits.map((h) => ({ ...h, knowledgeBaseId: kb.id }))
+    // ① 向量化 query
+    const queryVector = await withSpan('embed-query', 'embedding', async (s) => {
+      const v = await embedText(query, targets[0].embeddingModel, signal)
+      s.update({ metadata: { model: targets[0].embeddingModel, dim: v.length } })
+      return v
     })
-  )
-  const candidates = perKb.flat()
-  if (candidates.length === 0) return []
 
-  // 按 vectorId 回 SQLite 取原文（Milvus 只存向量）
-  const vectorIds = candidates.map((c) => c.vectorId)
-  const rows = await db.select().from(chunks).where(inArray(chunks.vectorId, vectorIds))
-  const byVectorId = new Map(rows.map((r) => [r.vectorId, r]))
+    // ② 各库并发召回（宁多勿漏，每库 RECALL_PER_KB）
+    const candidates = await withSpan('vector-search', 'span', async (s) => {
+      const perKb = await Promise.all(
+        targets.map(async (kb) => {
+          const hits = await searchVectors(kb.collectionName, queryVector, RECALL_PER_KB)
+          return hits.map((h) => ({ ...h, knowledgeBaseId: kb.id }))
+        })
+      )
+      const flat = perKb.flat()
+      s.update({ metadata: { kbCount: targets.length, recallPerKb: RECALL_PER_KB, candidates: flat.length } })
+      return flat
+    })
+    if (candidates.length === 0) return []
 
-  // 组装候选（跳过 SQLite 查不到的孤儿向量）
-  const pool: RetrievalHit[] = []
-  for (const c of candidates) {
-    const row = byVectorId.get(c.vectorId)
-    if (!row) continue
-    pool.push({ content: row.content, score: c.score, documentId: row.documentId, knowledgeBaseId: c.knowledgeBaseId })
-  }
-  if (pool.length === 0) return []
+    // ③ 按 vectorId 回 SQLite 取原文（Milvus 只存向量）
+    const pool = await withSpan('sqlite-hydrate', 'span', async (s) => {
+      const vectorIds = candidates.map((c) => c.vectorId)
+      const rows = await db.select().from(chunks).where(inArray(chunks.vectorId, vectorIds))
+      const byVectorId = new Map(rows.map((r) => [r.vectorId, r]))
+      const out: RetrievalHit[] = []
+      for (const c of candidates) {
+        const row = byVectorId.get(c.vectorId)
+        if (!row) continue
+        out.push({ content: row.content, score: c.score, documentId: row.documentId, knowledgeBaseId: c.knowledgeBaseId })
+      }
+      s.update({ metadata: { hydrated: out.length, orphans: candidates.length - out.length } })
+      return out
+    })
+    if (pool.length === 0) return []
 
-  // 精排（可降级）
-  if (await isRerankAvailable()) {
-    try {
-      const ranked = await rerank(query, pool.map((p) => p.content), FINAL_TOP_K, signal)
-      return ranked.map((r) => ({ ...pool[r.index], score: r.score }))
-    } catch (e) {
-      // rerank 失败降级为向量分数排序，不阻断检索
-      console.warn(`[rag] rerank 失败，降级为向量分数排序: ${(e as Error).message}`)
-    }
-  }
-  return pool.sort((a, b) => b.score - a.score).slice(0, FINAL_TOP_K)
+    // ④ 精排（可降级）；未配置 rerank 时降级为向量分数排序
+    const rerankOn = await isRerankAvailable()
+    const hits = await withSpan('rerank', 'span', async (s) => {
+      if (rerankOn) {
+        try {
+          const ranked = await rerank(query, pool.map((p) => p.content), FINAL_TOP_K, signal)
+          s.update({ metadata: { mode: 'rerank', in: pool.length, out: ranked.length } })
+          return ranked.map((r) => ({ ...pool[r.index], score: r.score }))
+        } catch (e) {
+          // rerank 失败降级为向量分数排序，不阻断检索
+          console.warn(`[rag] rerank 失败，降级为向量分数排序: ${(e as Error).message}`)
+        }
+      }
+      s.update({ metadata: { mode: rerankOn ? 'rerank-fallback' : 'vector-score', in: pool.length } })
+      return pool.sort((a, b) => b.score - a.score).slice(0, FINAL_TOP_K)
+    })
+
+    span.update({ output: { hitCount: hits.length }, metadata: { rerankEnabled: rerankOn } })
+    return hits
+  })
 }
