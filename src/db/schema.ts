@@ -1,5 +1,20 @@
 import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
 
+// ─── Model Configs ──────────────────────────────────────────
+// 一次 LLM 调用所需的全部凭证，独立于 Agent；Agent 通过 modelConfigId 引用。
+// adapterName 跟随此处（adapter 类型与 endpoint/key 强绑定，不留在 Agent 上）。
+export const modelConfigs = sqliteTable('model_configs', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),                                    // 展示名，如 "DeepSeek 官方"
+  adapterName: text('adapter_name').notNull().default('openai-compatible'),
+  provider: text('provider'),                                      // 语义标签
+  modelId: text('model_id'),
+  baseURL: text('base_url'),
+  apiKey: text('api_key'),
+  isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false), // Agent 未指定时的兜底
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})
+
 // ─── Agents ─────────────────────────────────────────────────
 export const agents = sqliteTable('agents', {
   id: text('id').primaryKey(),
@@ -7,11 +22,7 @@ export const agents = sqliteTable('agents', {
   avatar: text('avatar').notNull().default('🤖'),
   description: text('description').notNull().default(''),
   systemPrompt: text('system_prompt').notNull().default(''),
-  adapterName: text('adapter_name').notNull().default('openai-compatible'),
-  modelProvider: text('model_provider'),
-  modelId: text('model_id'),
-  apiKey: text('api_key'),      // per-agent key，最高优先级；空则回退全局设置/env
-  baseURL: text('base_url'),    // 自定义兼容端点，空则回退全局设置/env
+  modelConfigId: text('model_config_id'),  // 引用 model_configs.id；空则用默认配置
   toolNames: text('tool_names', { mode: 'json' }).notNull().$type<string[]>().default([]),
   knowledgeBaseIds: text('knowledge_base_ids', { mode: 'json' }).notNull().$type<string[]>().default([]), // 可检索的知识库范围
   isBuiltin: integer('is_builtin', { mode: 'boolean' }).notNull().default(false),

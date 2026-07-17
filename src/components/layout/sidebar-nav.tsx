@@ -1,12 +1,13 @@
 'use client'
 
 import { useAppStore, type ActiveView } from '@/stores/app-store'
-import { MessagesSquare, Bot, Library, Activity } from 'lucide-react'
+import { MessagesSquare, Bot, Cpu, Library, Activity } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS: { view: ActiveView; label: string; icon: LucideIcon }[] = [
   { view: 'chat', label: '对话', icon: MessagesSquare },
+  { view: 'models', label: '模型', icon: Cpu },
   { view: 'agents', label: '智能体', icon: Bot },
   { view: 'knowledge', label: '知识库', icon: Library },
   { view: 'monitor', label: '模型流量监控', icon: Activity },

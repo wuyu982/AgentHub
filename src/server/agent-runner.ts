@@ -10,6 +10,7 @@ import {db} from "@/db/client";
 import {agents, messages} from "@/db/schema";
 import {eq} from "drizzle-orm";
 import {eventBus} from "@/server/event-bus";
+import {withSpan} from "@/server/tracing/span";
 
 // 工具调用轮数硬上限，防止工具死循环烧 token
 const MAX_TOOL_ROUNDS = 8
@@ -94,8 +95,8 @@ export async function runAgent(
         .filter((m): m is AdapterMessage => m !== null)
 
     //4.选适配器，解析凭证，准备工具集/中止控制器/消息 id
-    const adapter = getAdapter(agent.adapterName)
-    const credentials = await resolveCredentials(agent)
+    const credentials = await resolveCredentials(agent.modelConfigId)
+    const adapter = getAdapter(credentials.adapterName)
     // 一级护栏：子 agent（depth>0）不暴露 dispatch_to_agent，防止无限自派发
     const resolved = resolveTools(agent.toolNames)
     const tools = depth > 0 ? resolved.filter((t) => t.name !== 'dispatch_to_agent') : resolved
@@ -118,7 +119,14 @@ export async function runAgent(
     let partIndex = -1
     let finalText = ''
 
+    // TTFT：从进入执行到首个 text.delta 的毫秒数；首个工具调用同理（衡量 agent 决策延迟）
+    const runStartedAt = Date.now()
+    let ttftMs: number | undefined
+    let totalTextLen = 0
+
     try {
+      return await withSpan(`agent:${agent.name}`, 'agent', async (span) => {
+        span.update({ input: { agentId, triggerMessageId, depth } })
         //6.agentic loop：每轮消费一次 adapter 流，收集 tool.call；无工具调用则收敛
         for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
             let roundText = ''
@@ -149,6 +157,8 @@ export async function runAgent(
                     }
 
                     case 'text.delta': {
+                        if (ttftMs === undefined) ttftMs = Date.now() - runStartedAt
+                        totalTextLen += event.text.length
                         const part = parts[partIndex]
                         if (part && part.type === 'text') part.content += event.text
                         roundText += event.text
@@ -272,7 +282,19 @@ export async function runAgent(
             status: 'complete',
         })
 
+        // 延迟指标写入 span：TTFT（首字节）、端到端、生成速率（tokens/s 以字符近似）
+        const totalMs = Date.now() - runStartedAt
+        span.update({
+          output: { finalText },
+          metadata: {
+            ttftMs,
+            totalMs,
+            outputChars: totalTextLen,
+            charsPerSec: totalMs > 0 ? Math.round((totalTextLen / totalMs) * 1000) : undefined,
+          },
+        })
         return finalText
+      })
     } catch (err) {
         // 失败时通知前端，不吞掉错误上下文
         eventBus.emit({

@@ -4,10 +4,10 @@
  * 缺失 key 不在此处抛错，交由 adapter 抛出（不在启动时拒绝服务）。
  */
 import { db } from '@/db/client'
-import { agents, appSettings } from '@/db/schema'
+import { appSettings, modelConfigs } from '@/db/schema'
+import { eq } from 'drizzle-orm'
 import { DEFAULT_MODEL_ID } from '@/shared/constants'
-
-type AgentRow = typeof agents.$inferSelect
+import type { AdapterName } from '@/shared/types'
 
 export interface ResolvedCredentials {
   apiKey: string
@@ -15,22 +15,28 @@ export interface ResolvedCredentials {
   model: string
 }
 
-// agent 为 null 时解析全局凭证（用于路由器等非 agent 场景）
-export async function resolveCredentials(agent: AgentRow | null): Promise<ResolvedCredentials> {
-  const rows = await db.select().from(appSettings)
-  const settings: Record<string, string> = {}
-  for (const row of rows) settings[row.key] = row.value
+// 对话 LLM 额外携带 adapterName（embedding/rerank 不涉及 adapter，故分开）
+export interface ResolvedChatCredentials extends ResolvedCredentials {
+  adapterName: AdapterName
+}
 
-  const apiKey =
-    agent?.apiKey || settings['openai_api_key'] || process.env.OPENAI_API_KEY || ''
+// 按 modelConfigId 解析对话 LLM 凭证：指定则查该条，否则用 isDefault 那条；均缺失时回退 env。
+// modelConfigId 为 null 用于路由器等未绑定 Agent 的场景。缺 key 不抛错，交由 adapter 抛出。
+export async function resolveCredentials(modelConfigId: string | null): Promise<ResolvedChatCredentials> {
+  let config: typeof modelConfigs.$inferSelect | undefined
+  if (modelConfigId) {
+    ;[config] = await db.select().from(modelConfigs).where(eq(modelConfigs.id, modelConfigId))
+  }
+  if (!config) {
+    ;[config] = await db.select().from(modelConfigs).where(eq(modelConfigs.isDefault, true))
+  }
 
-  const baseURL =
-    agent?.baseURL || settings['openai_base_url'] || process.env.OPENAI_BASE_URL || undefined
+  const adapterName = (config?.adapterName as AdapterName) || 'openai-compatible'
+  const apiKey = config?.apiKey || process.env.OPENAI_API_KEY || ''
+  const baseURL = config?.baseURL || process.env.OPENAI_BASE_URL || undefined
+  const model = config?.modelId || process.env.DEFAULT_MODEL || DEFAULT_MODEL_ID
 
-  const model =
-    agent?.modelId || settings['default_model'] || process.env.DEFAULT_MODEL || DEFAULT_MODEL_ID
-
-  return { apiKey, baseURL, model }
+  return { adapterName, apiKey, baseURL, model }
 }
 
 // Embedding 凭证：独立于对话 LLM。优先级 app_settings > env（不涉及 per-agent，模型在建 KB 时定死）。

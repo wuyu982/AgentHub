@@ -59,17 +59,30 @@ export interface MessageRecord {
   createdAt: number
 }
 
+// 一次 LLM 调用所需的全部凭证，独立实体；Agent 通过 modelConfigId 引用
+// 含 apiKey 明文，仅在服务端（DB / 凭证解析）流转，绝不整体发往前端
+export interface ModelConfigRecord {
+  id: string
+  name: string
+  adapterName: AdapterName
+  provider: ModelProvider | null
+  modelId: string | null
+  baseURL: string | null
+  apiKey: string | null
+  isDefault: boolean
+  createdAt: number
+}
+
+// 发往前端的脱敏视图：不含 apiKey 明文，仅用 hasApiKey 标记是否已配置
+export type ModelConfigView = Omit<ModelConfigRecord, 'apiKey'> & { hasApiKey: boolean }
+
 export interface AgentRecord {
   id: string
   name: string
   avatar: string
   description: string
   systemPrompt: string
-  adapterName: AdapterName
-  modelProvider: ModelProvider | null
-  modelId: string | null
-  apiKey: string | null
-  baseURL: string | null
+  modelConfigId: string | null // 引用 ModelConfig；空则用默认配置
   toolNames: string[]
   knowledgeBaseIds: string[] // 可检索的知识库范围
   isBuiltin: boolean

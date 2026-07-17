@@ -7,7 +7,7 @@ import { immer } from 'zustand/middleware/immer'
 import type { MessageRecord, AgentRecord, ConversationRecord, StreamEvent } from '@/shared/types'
 
 // 左侧导航对应的右侧主区视图
-export type ActiveView = 'chat' | 'agents' | 'knowledge' | 'monitor'
+export type ActiveView = 'chat' | 'agents' | 'models' | 'knowledge' | 'monitor'
 
 interface AppState {
   // ─── Data ─────────────────────────────────────────
@@ -28,6 +28,8 @@ interface AppState {
   setCurrentConversation: (id: string | null) => void
   addConversation: (conversation: ConversationRecord) => void
   setAgents: (agents: AgentRecord[]) => void
+  upsertAgent: (agent: AgentRecord) => void
+  removeAgent: (id: string) => void
   setMessages: (conversationId: string, messages: MessageRecord[]) => void
   addMessage: (conversationId: string, message: MessageRecord) => void
   setConnected: (connected: boolean) => void
@@ -70,6 +72,19 @@ export const useAppStore = create<AppState>()(
     setAgents: (agents) =>
       set((state) => {
         state.agents = agents
+      }),
+
+    // 新建插到列表头，已存在则原地更新
+    upsertAgent: (agent) =>
+      set((state) => {
+        const i = state.agents.findIndex((a) => a.id === agent.id)
+        if (i === -1) state.agents.unshift(agent)
+        else state.agents[i] = agent
+      }),
+
+    removeAgent: (id) =>
+      set((state) => {
+        state.agents = state.agents.filter((a) => a.id !== id)
       }),
 
     setMessages: (conversationId, messages) =>

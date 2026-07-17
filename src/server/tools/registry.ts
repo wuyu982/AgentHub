@@ -23,6 +23,11 @@ export function getTool(name: string): ToolDef | undefined {
   return REGISTRY.get(name)
 }
 
+// 列出所有已注册工具的元数据，供 Agent 配置界面做多选
+export function listTools(): { name: string; description: string }[] {
+  return Array.from(REGISTRY.values()).map((t) => ({ name: t.name, description: t.description }))
+}
+
 // 按 Agent.toolNames 解析实际工具集；未注册的 name warn 跳过，不整体崩掉
 export function resolveTools(toolNames: string[]): ToolDef[] {
   const resolved: ToolDef[] = []

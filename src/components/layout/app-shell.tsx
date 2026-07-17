@@ -1,11 +1,13 @@
 'use client'
 
 import { useEffect } from 'react'
-import { Bot, Activity } from 'lucide-react'
+import { Activity } from 'lucide-react'
 import { useAppStore } from '@/stores/app-store'
 import { Sidebar } from '@/components/layout/sidebar'
 import { PlaceholderView } from '@/components/layout/placeholder-view'
 import { KnowledgePanel } from '@/components/knowledge/knowledge-panel'
+import { AgentsPanel } from '@/components/agents/agents-panel'
+import { ModelConfigsPanel } from '@/components/model-configs/model-configs-panel'
 import { ChatPanel } from '@/components/chat/chat-panel'
 import { SSE_RECONNECT_INTERVAL } from '@/shared/constants'
 
@@ -73,13 +75,8 @@ export function AppShell() {
     <div className="flex h-screen">
       <Sidebar />
       {activeView === 'chat' && <ChatPanel />}
-      {activeView === 'agents' && (
-        <PlaceholderView
-          icon={Bot}
-          title="智能体"
-          description="管理你的 Agent：配置模型、系统提示词、工具与知识库。"
-        />
-      )}
+      {activeView === 'agents' && <AgentsPanel />}
+      {activeView === 'models' && <ModelConfigsPanel />}
       {activeView === 'knowledge' && <KnowledgePanel />}
       {activeView === 'monitor' && (
         <PlaceholderView
