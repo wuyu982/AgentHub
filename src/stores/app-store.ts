@@ -36,6 +36,78 @@ interface AppState {
 
   // ─── StreamEvent 处理 ──────────────────────────────
   handleStreamEvent: (event: StreamEvent) => void
+  // 批量应用：rAF 合批时一次 set 内消费多个事件，每帧只触发一次重渲染
+  handleStreamEvents: (events: StreamEvent[]) => void
+}
+
+// 纯 reducer：在 draft 上应用单个事件（供单发/批量共用）
+function applyEvent(state: AppState, event: StreamEvent) {
+  const { conversationId } = event
+  if (!state.messages[conversationId]) {
+    state.messages[conversationId] = []
+  }
+  const msgs = state.messages[conversationId]
+
+  switch (event.type) {
+    case 'message.start': {
+      // 幂等：手动发的消息已由 fetch 响应入列表，重复事件不再造分身
+      if (msgs.some((m) => m.id === event.messageId)) break
+      // agentId 为空 = 用户/子任务消息（complete，无流式）；非空 = agent 开始流式发言
+      const isAgent = event.agentId !== ''
+      const newMsg: MessageRecord = {
+        id: event.messageId,
+        conversationId,
+        role: isAgent ? 'agent' : 'user',
+        agentId: isAgent ? event.agentId : null,
+        parts: [],
+        status: isAgent ? 'streaming' : 'complete',
+        parentMessageId: null,
+        mentionedAgentIds: [],
+        runId: event.runId,
+        createdAt: event.timestamp,
+      }
+      msgs.push(newMsg)
+      break
+    }
+
+    case 'message.end': {
+      const msg = msgs.find((m) => m.id === event.messageId)
+      if (msg) msg.status = 'complete'
+      break
+    }
+
+    case 'part.start': {
+      const msg = msgs.find((m) => m.id === event.messageId)
+      if (msg) {
+        msg.parts[event.partIndex] = event.part
+      }
+      break
+    }
+
+    case 'part.delta': {
+      const msg = msgs.find((m) => m.id === event.messageId)
+      if (!msg) break
+      const part = msg.parts[event.partIndex]
+      if (!part) break
+
+      const delta = event.delta
+      if (delta.type === 'text.append' && part.type === 'text') {
+        part.content += delta.text
+      } else if (delta.type === 'thinking.append' && part.type === 'thinking') {
+        part.content += delta.text
+      }
+      break
+    }
+
+    case 'run.end': {
+      if (event.status === 'failed') {
+        // 标记最后一条 streaming 消息为 error
+        const streamingMsg = msgs.findLast((m) => m.status === 'streaming')
+        if (streamingMsg) streamingMsg.status = 'error'
+      }
+      break
+    }
+  }
 }
 
 export const useAppStore = create<AppState>()(
@@ -105,70 +177,12 @@ export const useAppStore = create<AppState>()(
         state.connected = connected
       }),
 
-    handleStreamEvent: (event) =>
+    handleStreamEvent: (event) => set((state) => applyEvent(state, event)),
+
+    // 一次 set 内顺序应用整批事件，配合 rAF 合批把每帧的重渲染压到一次
+    handleStreamEvents: (events) =>
       set((state) => {
-        const { conversationId } = event
-        if (!state.messages[conversationId]) {
-          state.messages[conversationId] = []
-        }
-        const msgs = state.messages[conversationId]
-
-        switch (event.type) {
-          case 'message.start': {
-            const newMsg: MessageRecord = {
-              id: event.messageId,
-              conversationId,
-              role: 'agent',
-              agentId: event.agentId,
-              parts: [],
-              status: 'streaming',
-              parentMessageId: null,
-              mentionedAgentIds: [],
-              runId: event.runId,
-              createdAt: event.timestamp,
-            }
-            msgs.push(newMsg)
-            break
-          }
-
-          case 'message.end': {
-            const msg = msgs.find((m) => m.id === event.messageId)
-            if (msg) msg.status = 'complete'
-            break
-          }
-
-          case 'part.start': {
-            const msg = msgs.find((m) => m.id === event.messageId)
-            if (msg) {
-              msg.parts[event.partIndex] = event.part
-            }
-            break
-          }
-
-          case 'part.delta': {
-            const msg = msgs.find((m) => m.id === event.messageId)
-            if (!msg) break
-            const part = msg.parts[event.partIndex]
-            if (!part) break
-
-            const delta = event.delta
-            if (delta.type === 'text.append' && part.type === 'text') {
-              part.content += delta.text
-            } else if (delta.type === 'thinking.append' && part.type === 'thinking') {
-              part.content += delta.text
-            }
-            break
-          }
-
-          case 'run.end': {
-            if (event.status === 'failed') {
-              // 标记最后一条 streaming 消息为 error
-              const streamingMsg = msgs.findLast((m) => m.status === 'streaming')
-              if (streamingMsg) streamingMsg.status = 'error'
-            }
-            break
-          }
-        }
+        for (const event of events) applyEvent(state, event)
       }),
   }))
 )

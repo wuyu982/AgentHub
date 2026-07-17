@@ -87,6 +87,7 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
       { signal },
     )
 
+    let thinkingStarted = false
     let textStarted = false
     const pending = new Map<number, PendingToolCall>()
 
@@ -95,8 +96,19 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
       const choice = chunk.choices[0]
       const delta = choice?.delta
 
-      // 文本增量
+      // 思考增量：deepseek/R1 等推理模型把思考流放在 reasoning_content（SDK 类型未覆盖，窄类型读取）
+      const reasoning = (delta as { reasoning_content?: string } | undefined)?.reasoning_content
+      if (reasoning) {
+        if (!thinkingStarted) {
+          thinkingStarted = true
+          yield { type: 'thinking.start' }
+        }
+        yield { type: 'thinking.delta', text: reasoning }
+      }
+
+      // 文本增量：正文一旦开始，思考阶段结束
       if (delta?.content) {
+        if (thinkingStarted && !textStarted) yield { type: 'thinking.end' }
         if (!textStarted) {
           textStarted = true
           yield { type: 'text.start' }
@@ -116,6 +128,8 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
       }
     }
 
+    // 思考后未接正文（直接工具调用/收敛）时补发 thinking.end，避免 part 悬空
+    if (thinkingStarted && !textStarted) yield { type: 'thinking.end' }
     if (textStarted) yield { type: 'text.end' }
 
     // 拼接完成后一次性吐出各工具调用（参数解析失败时以空对象兜底，交由 executor/工具处理）

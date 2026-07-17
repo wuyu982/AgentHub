@@ -141,6 +141,47 @@ export async function runAgent(
                 tools: toolSchemas,
             }, controller.signal)) {
                 switch (event.type) {
+                    case 'thinking.start': {
+                        partIndex++
+                        const part: MessagePart = { type: 'thinking', content: '' }
+                        parts[partIndex] = part
+                        eventBus.emit({
+                            type: "part.start",
+                            conversationId,
+                            timestamp: Date.now(),
+                            messageId,
+                            partIndex,
+                            part,
+                        })
+                        break
+                    }
+
+                    case 'thinking.delta': {
+                        if (ttftMs === undefined) ttftMs = Date.now() - runStartedAt
+                        const part = parts[partIndex]
+                        if (part && part.type === 'thinking') part.content += event.text
+                        eventBus.emit({
+                            type: "part.delta",
+                            conversationId,
+                            timestamp: Date.now(),
+                            messageId,
+                            partIndex,
+                            delta: { type: 'thinking.append', text: event.text },
+                        })
+                        break
+                    }
+
+                    case 'thinking.end': {
+                        eventBus.emit({
+                            type: "part.end",
+                            conversationId,
+                            timestamp: Date.now(),
+                            messageId,
+                            partIndex,
+                        })
+                        break
+                    }
+
                     case 'text.start': {
                         partIndex++
                         const part: MessagePart = { type: 'text', content: '' }
@@ -255,12 +296,13 @@ export async function runAgent(
         }
 
         //7.持久化 agent 消息，发出 message.end 与 run.end
+        // thinking part 只在流式时展示，不入库（省空间；历史回灌 LLM 时也不该带思考）
         await db.insert(messages).values({
             id: messageId,
             conversationId,
             role: 'agent',
             agentId,
-            parts,
+            parts: parts.filter((p) => p.type !== 'thinking'),
             status: 'complete',
             parentMessageId: triggerMessageId,
             mentionedAgentIds: [],

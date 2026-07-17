@@ -8,7 +8,6 @@ import { messages, conversations } from '@/db/schema'
 import { eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { z } from 'zod'
-import { eventBus } from '@/server/event-bus'
 import { runAgent } from '@/server/agent-runner'
 import { routeToAgent } from '@/server/agent-router'
 
@@ -60,21 +59,7 @@ export async function POST(
     .set({ updatedAt: new Date() })
     .where(eq(conversations.id, conversationId))
 
-  // 通知前端收到用户消息
-  eventBus.emit({
-    type: 'message.start',
-    conversationId,
-    timestamp: Date.now(),
-    messageId: userMessage.id,
-    agentId: '',
-    runId: '',
-  })
-  eventBus.emit({
-    type: 'message.end',
-    conversationId,
-    timestamp: Date.now(),
-    messageId: userMessage.id,
-  })
+  // 用户消息由前端 fetch 响应直接入列表，无需再走 SSE（避免重复渲染）
 
   // 后台触发一个 agent 的流式响应（不 await，API 立即返回）
   const fireRun = (agentId: string) =>

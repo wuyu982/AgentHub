@@ -29,6 +29,9 @@ export interface AdapterRequest {
 }
 
 export type AdapterEvent =
+    | { type: 'thinking.start'}
+    | { type: 'thinking.delta'; text: string} // 推理模型的思考流（如 deepseek 的 reasoning_content）
+    | { type: 'thinking.end'}
     | { type: 'text.start'}
     | { type: 'text.delta'; text: string}
     | { type: 'text.end'}

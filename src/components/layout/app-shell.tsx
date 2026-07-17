@@ -10,6 +10,7 @@ import { AgentsPanel } from '@/components/agents/agents-panel'
 import { ModelConfigsPanel } from '@/components/model-configs/model-configs-panel'
 import { ChatPanel } from '@/components/chat/chat-panel'
 import { SSE_RECONNECT_INTERVAL } from '@/shared/constants'
+import type { StreamEvent } from '@/shared/types'
 
 export function AppShell() {
   const setConversations = useAppStore((s) => s.setConversations)
@@ -17,7 +18,7 @@ export function AppShell() {
   const currentConversationId = useAppStore((s) => s.currentConversationId)
   const activeView = useAppStore((s) => s.activeView)
   const setConnected = useAppStore((s) => s.setConnected)
-  const handleStreamEvent = useAppStore((s) => s.handleStreamEvent)
+  const handleStreamEvents = useAppStore((s) => s.handleStreamEvents)
 
   // 初始化：加载会话列表和 Agent 列表
   useEffect(() => {
@@ -39,6 +40,17 @@ export function AppShell() {
     let es: EventSource | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
+    // rAF 合批：SSE 逐字到达，先入缓冲，每帧 flush 一次，避免每字触发重渲染导致浏览器绘制饥饿
+    let buffer: StreamEvent[] = []
+    let rafId: number | null = null
+    const flush = () => {
+      rafId = null
+      if (buffer.length === 0) return
+      const batch = buffer
+      buffer = []
+      handleStreamEvents(batch)
+    }
+
     const connect = () => {
       es = new EventSource(`/api/stream?conversationId=${currentConversationId}`)
 
@@ -48,7 +60,8 @@ export function AppShell() {
         try {
           const event = JSON.parse(e.data)
           if (event.type !== 'connected' && event.type !== 'heartbeat') {
-            handleStreamEvent(event)
+            buffer.push(event)
+            if (rafId === null) rafId = requestAnimationFrame(flush)
           }
         } catch {
           // ignore parse errors
@@ -67,9 +80,11 @@ export function AppShell() {
     return () => {
       es?.close()
       if (reconnectTimer) clearTimeout(reconnectTimer)
+      if (rafId !== null) cancelAnimationFrame(rafId)
+      buffer = []
       setConnected(false)
     }
-  }, [currentConversationId, setConnected, handleStreamEvent])
+  }, [currentConversationId, setConnected, handleStreamEvents])
 
   return (
     <div className="flex h-screen">

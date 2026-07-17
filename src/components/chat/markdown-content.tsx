@@ -1,13 +1,14 @@
 'use client'
 
-import { useState } from 'react'
+import { memo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Check, Copy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 // 渲染 agent/用户消息里的 markdown 正文。代码块带复制按钮，其余走 prose 语义样式。
-export function MarkdownContent({ content, className }: { content: string; className?: string }) {
+// memo：content 不变则跳过重解析（流式时未在更新的历史消息不必反复解析）
+export const MarkdownContent = memo(function MarkdownContent({ content, className }: { content: string; className?: string }) {
   return (
     <div className={cn('prose-chat text-sm leading-relaxed', className)}>
       <ReactMarkdown
@@ -37,7 +38,7 @@ export function MarkdownContent({ content, className }: { content: string; class
       </ReactMarkdown>
     </div>
   )
-}
+})
 
 function CodeBlock({ className, children }: { className?: string; children: string }) {
   const [copied, setCopied] = useState(false)

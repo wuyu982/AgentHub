@@ -92,7 +92,7 @@ L1  Persistence         src/db/** + Milvus client
 - [x] AgentRunner 基础流程（接收消息 → 调 adapter → 流式返回）
 - [x] 消息 parts 模型（text / thinking / tool_use / tool_result）
 - [x] 前端 IM 界面（会话列表 + 聊天面板 + 输入框）
-- [x] SSE 实时流式渲染
+- [x] SSE 实时流式渲染（链路始终逐字，观感卡顿的绘制饥饿问题见前端优化梯队三修复）
 - [x] Agent 管理（CRUD + 内置 Agent seed）
 - [x] 凭证解析（per-agent apiKey/baseURL → app_settings → env，见 CLAUDE.md §5.2）
 
@@ -163,7 +163,11 @@ L1  Persistence         src/db/** + Milvus client
 - [ ] 设置面板（当前仅占位按钮，无行为）
 - [ ] 手动脚手架 shadcn（保护 Tailwind4 CSS-first 样式，不跑 init）+ 替换手写 Dialog/Button/Input
 - [ ] sidebar 会话项增强（会话图标/成员头像堆叠）+ 顶部栏（标题+成员+连接状态）
-**梯队三（未开始）**：空状态插画、消息进入动画、滚动/流式细节
+**梯队三（进行中）**：空状态插画、消息进入动画、滚动/流式细节
+- [x] 流式渲染性能修复：SSE 逐字更新导致浏览器绘制饥饿（DOM 在更新但画面等流结束才一次性刷新）
+  - rAF 合批：SSE 事件先入缓冲，每帧 flush 一次（app-shell.tsx + store 新增 `handleStreamEvents` 批量入口，逻辑抽为纯函数 `applyEvent`）
+  - memo 化：抽出 `MessageRow` + `MarkdownContent` 加 `React.memo`，流式期间只重渲染变化的那条，历史消息不再全量重解析 markdown
+- [x] 推理模型思考流：openai-compatible adapter 消费 `reasoning_content`（AdapterEvent 增 `thinking.*` 三件套 → runner 转 thinking part），前端「思考中…」进行时展开、结束自动折叠；thinking part 只流式展示不落库
 
 ### Phase 4: RAG 知识库系统
 
