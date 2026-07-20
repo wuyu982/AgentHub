@@ -38,6 +38,13 @@ function dispatchChild(conversationId: string, parentMessageId: string, depth: n
     }
 }
 
+// create_artifact 成功时 result 形如 { artifactId, type, title }；据此认出产物并补插 artifact_ref
+function extractArtifactId(res: { result: unknown; isError: boolean }): string | null {
+    if (res.isError || typeof res.result !== 'object' || res.result === null) return null
+    const id = (res.result as { artifactId?: unknown }).artifactId
+    return typeof id === 'string' ? id : null
+}
+
 function getAdapter(adapterName: string): LLMAdapter {
     switch(adapterName){
         case 'openai-compatible':
@@ -265,6 +272,7 @@ export async function runAgent(
             const toolCalls = roundToolCalls.map((tc) => ({ callId: tc.callId, toolName: tc.toolName, args: tc.args }))
             const results = await executeTools(toolCalls, {
                 conversationId,
+                messageId,
                 runId,
                 signal: controller.signal,
                 depth,
@@ -295,6 +303,22 @@ export async function runAgent(
                     part,
                 })
                 history.push({ role: 'tool', callId: res.callId, toolName, result: res.result, isError: res.isError })
+
+                // create_artifact 产出：补插 artifact_ref part，让前端渲染产物预览（§3.4 一等 part）
+                const artifactId = extractArtifactId(res)
+                if (artifactId) {
+                    partIndex++
+                    const refPart: MessagePart = { type: 'artifact_ref', artifactId }
+                    parts[partIndex] = refPart
+                    eventBus.emit({
+                        type: "part.start",
+                        conversationId,
+                        timestamp: Date.now(),
+                        messageId,
+                        partIndex,
+                        part: refPart,
+                    })
+                }
             }
         }
 

@@ -104,3 +104,16 @@ export const chunks = sqliteTable('chunks', {
   vectorId: text('vector_id').notNull(), // Milvus 主键，双写对齐
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
 })
+
+// ─── Artifacts ──────────────────────────────────────────────
+// Agent 产出的交付物（网页/代码/文档）。content 存 DB 快照，不随沙箱文件改动而变。
+export const artifacts = sqliteTable('artifacts', {
+  id: text('id').primaryKey(),
+  conversationId: text('conversation_id').notNull().references(() => conversations.id, { onDelete: 'cascade' }),
+  messageId: text('message_id').notNull(), // 产出该产物的 agent 消息，对应 artifact_ref part
+  type: text('type', { enum: ['web_app', 'code_file', 'document'] }).notNull(),
+  title: text('title').notNull(),
+  content: text('content').notNull(), // 产物正文：HTML / 代码 / markdown
+  language: text('language'), // code_file 的语言（语法高亮用），其他类型为空
+  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+})

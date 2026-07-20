@@ -23,6 +23,7 @@ export type DispatchFn = (agentId: string, task: string) => Promise<string>
 // 由 ToolExecutor 注入；工具不自己抓全局状态
 export interface ToolContext {
   conversationId: string
+  messageId: string // 产出工具调用的 agent 消息 id；create_artifact 落库归属用
   runId: string
   signal: AbortSignal // 复用 runAgent 的中止信号，工具内长操作必须尊重
   depth: number // 0 = 顶层 agent；>0 = 被 dispatch 的子 agent

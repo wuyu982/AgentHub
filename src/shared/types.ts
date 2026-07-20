@@ -129,3 +129,17 @@ export interface ChunkRecord {
   vectorId: string
   createdAt: number
 }
+
+// ─── Artifact 产物实体 ─────────────────────────────────────
+export type ArtifactType = 'web_app' | 'code_file' | 'document'
+
+export interface ArtifactRecord {
+  id: string
+  conversationId: string
+  messageId: string
+  type: ArtifactType
+  title: string
+  content: string
+  language: string | null
+  createdAt: number
+}

@@ -6,6 +6,7 @@ import { memo, useRef, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { agentAccent } from '@/lib/agent-accent'
 import { MarkdownContent } from '@/components/chat/markdown-content'
+import { ArtifactCard } from '@/components/chat/artifact-card'
 import { Wrench, Check, AlertTriangle } from 'lucide-react'
 
 interface MessageListProps {
@@ -154,6 +155,9 @@ function PartView({ part, isUser, isThinking }: { part: MessagePart; isUser: boo
         </pre>
       </details>
     )
+  }
+  if (part.type === 'artifact_ref') {
+    return <ArtifactCard artifactId={part.artifactId} />
   }
   return null
 }
