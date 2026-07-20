@@ -230,11 +230,31 @@ L1  Persistence         src/db/** + Milvus client
 **待端到端验证（需起 Docker：Milvus + Tika）**：建库/上传/检索全链路、rerank 实际召回效果、UI 交互
 
 ### Phase 5: 工具系统 + Workspace
-- [ ] 工具注册表（ToolDef 接口）
-- [ ] 内置工具：fs_read / fs_write / bash / rag_search
-- [ ] Workspace 沙箱（sandbox / local 模式）
-- [ ] fs_write 审批机制
-- [ ] Artifact 产物系统（web_app / document / code_file）
+
+> 分增量小步推进，每步先讨论方案再落地。工具注册表/rag_search 在 Phase 3/4 已就位。
+
+**增量 1｜Workspace 沙箱 + fs 读写 ✅**
+- [x] Workspace 沙箱：`tools/workspace.ts`，`data/workspaces/{conversationId}`，**不落 DB**（会话:沙箱 1:1，属性全可从 id 推导，YAGNI）
+- [x] `resolveInWorkspace` 越界校验（`path.resolve`+`path.relative`，拒 `../`/绝对路径/盘符/UNC）+ node:test 单测
+- [x] `fs_read`（256KB 上限截断）/ `fs_write`（覆盖写 + 自动建父目录）
+- [x] `ToolContext.workspaceRoot`（加法扩展），runner 注入
+
+**增量 2｜Artifact 产物系统 + 内联预览 ✅**
+- [x] `artifacts` 表 + `ArtifactRecord`（type: web_app/code_file/document；content 存 DB 快照，非文件路径）
+- [x] `create_artifact` 工具：落库返回 artifactId 标记；runner 识别后补插 `artifact_ref` part（§3.4 一等 part），`ToolContext.messageId` 供归属
+- [x] `GET /api/artifacts/[id]` + 前端 `ArtifactCard`（组件内 fetch 不进 store）
+- [x] web_app 走 iframe `sandbox="allow-scripts"`（不给 allow-same-origin，§5.1 铁律）；code/document 复用 `MarkdownContent`
+
+> 待浏览器端验证：产物卡片渲染、iframe 预览效果、三类型分渲染、加载态。
+
+**增量 3｜bash 工具（待做）**
+- [ ] bash 工具：cwd 强制 workspace root + 命令白名单（§5.3），Windows shell 差异处理
+- [ ] fs_write / bash 审批机制（human-in-the-loop：写前发 SSE 事件、暂停 tool-loop 等确认）——独立增量，同时覆盖 fs_write 与 bash
+
+**已定关键决策**
+- Workspace 不落 DB（增量 1）；Artifact 落 DB（元数据是真需求，与 workspace 相反）
+- fs_write 审批推迟到增量 3，与 bash 一起做（沙箱约束已保证写不出边界，会话内影响可控）
+- Artifact 来源用显式 `create_artifact` 工具（契合工具范式），非文件目录约定/文本解析（后者违 §3.4）
 
 ### Phase 6: 打磨 + 桌面版
 - [x] 模型配置独立实体（`ModelConfig`）：抽离 Agent 内嵌的模型字段为独立实体，Agent 纯引用 `modelConfigId`；左侧「模型」栏 CRUD（列表+详情），Agent 只需下拉选择
