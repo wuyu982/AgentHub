@@ -6,6 +6,8 @@ import type { ToolDef, ToolSchema } from '@/server/tools/types'
 import { getCurrentTime } from '@/server/tools/builtin/get-current-time'
 import { dispatchToAgent } from '@/server/tools/builtin/dispatch-to-agent'
 import { ragSearch } from '@/server/tools/builtin/rag-search'
+import { fsRead } from '@/server/tools/builtin/fs-read'
+import { fsWrite } from '@/server/tools/builtin/fs-write'
 
 const REGISTRY = new Map<string, ToolDef>()
 
@@ -18,6 +20,8 @@ function registerTool(tool: ToolDef): void {
 registerTool(getCurrentTime)
 registerTool(dispatchToAgent)
 registerTool(ragSearch)
+registerTool(fsRead)
+registerTool(fsWrite)
 
 export function getTool(name: string): ToolDef | undefined {
   return REGISTRY.get(name)

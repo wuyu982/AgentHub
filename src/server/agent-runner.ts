@@ -11,6 +11,7 @@ import {agents, messages} from "@/db/schema";
 import {eq} from "drizzle-orm";
 import {eventBus} from "@/server/event-bus";
 import {withSpan} from "@/server/tracing/span";
+import {workspaceRoot} from "@/server/tools/workspace";
 
 // 工具调用轮数硬上限，防止工具死循环烧 token
 const MAX_TOOL_ROUNDS = 8
@@ -271,6 +272,8 @@ export async function runAgent(
                 dispatch: depth === 0 ? dispatchChild(conversationId, triggerMessageId, depth) : undefined,
                 // Phase 4：注入该 agent 可查的 KB 范围，rag_search 无法越权
                 knowledgeBaseIds: agent.knowledgeBaseIds,
+                // Phase 5：注入会话沙箱根，fs_read/fs_write 路径校验以此为基准
+                workspaceRoot: workspaceRoot(conversationId),
             })
 
             for (const res of results) {

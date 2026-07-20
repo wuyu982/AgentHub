@@ -28,7 +28,7 @@ export interface ToolContext {
   depth: number // 0 = 顶层 agent；>0 = 被 dispatch 的子 agent
   dispatch?: DispatchFn // 线 3：dispatch_to_agent 的执行入口；depth>0 时不提供（一级派发护栏）
   knowledgeBaseIds?: string[] // Phase 4：rag_search 可查的 KB 范围（runner 注入，LLM 无法越权）
-  // workspace?: Workspace  // Phase 5 接入
+  workspaceRoot?: string // Phase 5：会话沙箱根目录（runner 注入），fs_read/fs_write 路径校验的基准
 }
 
 // 工具永远成功返回；失败包成 isError，不 throw 进 loop
