@@ -162,8 +162,12 @@ L1  Persistence         src/db/** + Milvus client
 - [x] 智能体管理界面（`agents` 视图）：列表+详情双栏（仿 knowledge-panel），配置 prompt/模型/工具/知识库；补 `/api/agents/[id]` PUT/DELETE（内置禁删）+ `/api/tools`（工具多选）
 - [ ] 设置面板（当前仅占位按钮，无行为）
 - [ ] 手动脚手架 shadcn（保护 Tailwind4 CSS-first 样式，不跑 init）+ 替换手写 Dialog/Button/Input
-- [ ] sidebar 会话项增强（会话图标/成员头像堆叠）+ 顶部栏（标题+成员+连接状态）
+- [x] sidebar 会话项增强（成员头像堆叠 + 群聊成员数徽标）+ 顶部栏 `chat-header.tsx`（标题+成员头像+连接状态灯）
+  - 抽共用组件 `chat/agent-avatars.tsx`（负 margin 堆叠 + 超出折叠 +N，sidebar/顶部栏复用）
 **梯队三（进行中）**：空状态插画、消息进入动画、滚动/流式细节
+- [x] 空状态插画：无会话（渐变光晕 Sparkles + 引导文案）/ 会话无消息（发送首条提示），chat-panel 内分渲染
+- [x] 消息进入动画（globals.css `@keyframes message-in` 淡入上滑，仅最后一条播放，尊重 prefers-reduced-motion）
+- [x] 滚动细节：`MessageList` 改为「贴底才自动跟随」（距底 <120px 才 scrollIntoView），用户上翻历史不被强行拉回
 - [x] 流式渲染性能修复：SSE 逐字更新导致浏览器绘制饥饿（DOM 在更新但画面等流结束才一次性刷新）
   - rAF 合批：SSE 事件先入缓冲，每帧 flush 一次（app-shell.tsx + store 新增 `handleStreamEvents` 批量入口，逻辑抽为纯函数 `applyEvent`）
   - memo 化：抽出 `MessageRow` + `MarkdownContent` 加 `React.memo`，流式期间只重渲染变化的那条，历史消息不再全量重解析 markdown
@@ -229,7 +233,7 @@ L1  Persistence         src/db/** + Milvus client
 
 **待端到端验证（需起 Docker：Milvus + Tika）**：建库/上传/检索全链路、rerank 实际召回效果、UI 交互
 
-### Phase 5: 工具系统 + Workspace
+### Phase 5: 工具系统 + Workspace ✅（代码层，端到端验证待起服务/开浏览器）
 
 > 分增量小步推进，每步先讨论方案再落地。工具注册表/rag_search 在 Phase 3/4 已就位。
 
@@ -247,24 +251,41 @@ L1  Persistence         src/db/** + Milvus client
 
 > 待浏览器端验证：产物卡片渲染、iframe 预览效果、三类型分渲染、加载态。
 
-**增量 3｜bash 工具（待做）**
-- [ ] bash 工具：cwd 强制 workspace root + 命令白名单（§5.3），Windows shell 差异处理
-- [ ] fs_write / bash 审批机制（human-in-the-loop：写前发 SSE 事件、暂停 tool-loop 等确认）——独立增量，同时覆盖 fs_write 与 bash
+**增量 3｜bash 工具**
+- [x] bash 工具：cwd 强制 workspace root + 命令白名单（§5.3），Windows shell 差异处理
+  - 三道闸：禁 shell 元字符（防注入/链式，强制单条命令）→ 命令白名单（危险命令拒绝，提示"需人工审批"）→ 超时 60s + 输出各 100k 截断 + 尊重 abort
+  - `validateCommand` 抽纯函数单测（8 通过）；Windows 优先复用 SHELL(Git Bash) 退回系统默认
+- [x] fs_write / bash 审批机制（human-in-the-loop：写前发 SSE 事件、暂停 tool-loop 等确认）——同时覆盖 fs_write 与 bash
+  - 审批注册表（挂起 Promise + 5min 超时按拒绝）+ `POST /api/approvals/[callId]` 确认通道
+  - 新增 `approval.request` StreamEvent（不新增 part 类型，瞬态叠加在 tool_use 卡片）；`ToolDef.checkApproval` 三档判定 skip/approve/deny
+  - executor 收口审批（deny 拒 / approve 挂起等确认 / 拒绝超时返 isError）；bash 三档、fs_write 恒审批
+  - 前端 store `pendingApprovals` + message-list 卡片内嵌批准/拒绝按钮
+  - 待浏览器端验证：按钮渲染、批准/拒绝后 tool-loop 恢复、超时、多待审并存
 
 **已定关键决策**
 - Workspace 不落 DB（增量 1）；Artifact 落 DB（元数据是真需求，与 workspace 相反）
 - fs_write 审批推迟到增量 3，与 bash 一起做（沙箱约束已保证写不出边界，会话内影响可控）
 - Artifact 来源用显式 `create_artifact` 工具（契合工具范式），非文件目录约定/文本解析（后者违 §3.4）
 
-### Phase 6: 打磨 + 桌面版
+### Phase 6: 打磨 + 桌面版（仅剩 Electron 打包）
 - [x] 模型配置独立实体（`ModelConfig`）：抽离 Agent 内嵌的模型字段为独立实体，Agent 纯引用 `modelConfigId`；左侧「模型」栏 CRUD（列表+详情），Agent 只需下拉选择
   - 凭证解析改走 ModelConfig：`resolveCredentials(modelConfigId)` → 指定/默认/env 三级兜底（见 CLAUDE.md §5.2）
   - key 脱敏：所有面向前端的 API 经 `toModelConfigView` 只回 `hasApiKey`，明文绝不出服务端；PUT 留空视作不修改
-- [ ] 全局 API Key 设置面板（app_settings 全局兜底，齿轮入口）
-- [ ] Token 用量统计
+- [x] 全局设置面板（齿轮入口弹窗 `settings/settings-dialog.tsx`）：管 Embedding / Rerank 凭证（base_url/model/api_key）
+  - 对话 LLM 凭证走 ModelConfig（「模型」界面），此面板不重复，只补 RAG 侧全局凭证的 UI（原先只能改 .env）
+  - 安全修复：`GET /api/settings` 脱敏（敏感 key 只回 `<key>__set` 布尔，明文绝不出服务端，§5.2）；PUT 敏感 key 留空视作不修改，避免误清
+  - 待浏览器端验证：加载回显、保存、已配置占位符、留空不覆盖
+- [x] Token 用量统计（并入指标线）：真实 token 采集 L2→L1→L3→L5 纵向闭环
+  - L2：`AdapterEvent` 加 `usage` 事件；openai-compatible 开 `stream_options.include_usage`，末 chunk 采集（不支持的端点降级记 0）
+  - L1：`agentRuns` 加 `modelId`/`promptTokens`/`completionTokens`/`totalTokens` 四列（`db:push` 已推）
+  - L3：runner 跨轮累加 usage，run 成功/失败均落 agentRuns（原先 run 根本没落表）；同步喂 span metadata（对齐 Langfuse 指标线）
+  - L5：`GET /api/metrics` 聚合（总览 + 按 Agent + 按模型）；monitor 视图从占位改为真实统计页（`monitor/monitor-panel.tsx`），删除无引用的 `placeholder-view.tsx`
+  - 待浏览器端验证：对话后 monitor 显示调用次数/token 分组统计、刷新、空态
 - [ ] Electron 桌面打包
-- [ ] 深色/浅色主题
-- [ ] 全局搜索
+- [x] 深色/浅色主题（梯队一已实现：next-themes + ThemeProvider + ThemeToggle + globals.css `.dark` 变量）
+- [x] 全局搜索：`GET /api/search?q=` 全库搜（会话标题 + 消息文本）；`search-dialog.tsx` 弹窗（Ctrl/Cmd+K 唤起 + debounce + 命中高亮 + 分组结果 + 点击跳会话）
+  - 消息 parts 是 JSON 列：SQL LIKE 粗筛 + Node 侧精确提取 text part 校验，排除结构误匹配；片段以命中词为中心截取
+  - 待浏览器端验证：快捷键、实时查询、高亮、跳转
 
 ---
 

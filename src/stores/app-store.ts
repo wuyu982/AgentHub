@@ -6,6 +6,14 @@ import { create } from 'zustand'
 import { immer } from 'zustand/middleware/immer'
 import type { MessageRecord, AgentRecord, ConversationRecord, StreamEvent } from '@/shared/types'
 
+// 待审批工具调用（瞬态，按 callId 索引；确认或结果到达后清除）
+export interface PendingApproval {
+  conversationId: string
+  callId: string
+  toolName: string
+  summary: string
+}
+
 // 左侧导航对应的右侧主区视图
 export type ActiveView = 'chat' | 'agents' | 'models' | 'knowledge' | 'monitor'
 
@@ -22,6 +30,9 @@ interface AppState {
   // ─── SSE 连接状态 ──────────────────────────────────
   connected: boolean
 
+  // ─── 待审批工具调用（human-in-the-loop）──────────────
+  pendingApprovals: Record<string, PendingApproval> // callId → 待审批
+
   // ─── Actions ──────────────────────────────────────
   setActiveView: (view: ActiveView) => void
   setConversations: (conversations: ConversationRecord[]) => void
@@ -33,6 +44,7 @@ interface AppState {
   setMessages: (conversationId: string, messages: MessageRecord[]) => void
   addMessage: (conversationId: string, message: MessageRecord) => void
   setConnected: (connected: boolean) => void
+  clearApproval: (callId: string) => void // 前端确认后本地清除待审态
 
   // ─── StreamEvent 处理 ──────────────────────────────
   handleStreamEvent: (event: StreamEvent) => void
@@ -81,6 +93,20 @@ function applyEvent(state: AppState, event: StreamEvent) {
       if (msg) {
         msg.parts[event.partIndex] = event.part
       }
+      // tool_result 到达 = 该工具调用已了结（批准执行完或被拒），清掉残留待审态
+      if (event.part.type === 'tool_result') {
+        delete state.pendingApprovals[event.part.callId]
+      }
+      break
+    }
+
+    case 'approval.request': {
+      state.pendingApprovals[event.callId] = {
+        conversationId,
+        callId: event.callId,
+        toolName: event.toolName,
+        summary: event.summary,
+      }
       break
     }
 
@@ -118,6 +144,7 @@ export const useAppStore = create<AppState>()(
     agents: [],
     activeView: 'chat',
     connected: false,
+    pendingApprovals: {},
 
     setActiveView: (view) =>
       set((state) => {
@@ -175,6 +202,11 @@ export const useAppStore = create<AppState>()(
     setConnected: (connected) =>
       set((state) => {
         state.connected = connected
+      }),
+
+    clearApproval: (callId) =>
+      set((state) => {
+        delete state.pendingApprovals[callId]
       }),
 
     handleStreamEvent: (event) => set((state) => applyEvent(state, event)),
