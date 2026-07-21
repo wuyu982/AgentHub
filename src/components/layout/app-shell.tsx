@@ -1,13 +1,12 @@
 'use client'
 
 import { useEffect } from 'react'
-import { Activity } from 'lucide-react'
 import { useAppStore } from '@/stores/app-store'
 import { Sidebar } from '@/components/layout/sidebar'
-import { PlaceholderView } from '@/components/layout/placeholder-view'
 import { KnowledgePanel } from '@/components/knowledge/knowledge-panel'
 import { AgentsPanel } from '@/components/agents/agents-panel'
 import { ModelConfigsPanel } from '@/components/model-configs/model-configs-panel'
+import { MonitorPanel } from '@/components/monitor/monitor-panel'
 import { ChatPanel } from '@/components/chat/chat-panel'
 import { SSE_RECONNECT_INTERVAL } from '@/shared/constants'
 import type { StreamEvent } from '@/shared/types'
@@ -93,13 +92,7 @@ export function AppShell() {
       {activeView === 'agents' && <AgentsPanel />}
       {activeView === 'models' && <ModelConfigsPanel />}
       {activeView === 'knowledge' && <KnowledgePanel />}
-      {activeView === 'monitor' && (
-        <PlaceholderView
-          icon={Activity}
-          title="模型流量监控"
-          description="查看各模型的调用量、Token 消耗与响应延迟。"
-        />
-      )}
+      {activeView === 'monitor' && <MonitorPanel />}
     </div>
   )
 }

@@ -42,6 +42,8 @@ export type StreamEvent = BaseEvent &
     | { type: 'part.end'; messageId: string; partIndex: number }
     | { type: 'tool.call'; messageId: string; callId: string; toolName: string; args: unknown }
     | { type: 'tool.result'; messageId: string; callId: string; result: unknown; isError: boolean }
+    // human-in-the-loop：需审批的工具执行前挂起，前端据 callId 在 tool_use 卡片上渲染批准/拒绝
+    | { type: 'approval.request'; callId: string; toolName: string; summary: string }
     | { type: 'heartbeat' }
   )
 

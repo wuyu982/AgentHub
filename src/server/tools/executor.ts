@@ -4,6 +4,7 @@
  */
 import { getTool } from '@/server/tools/registry'
 import type { ToolCall, ToolContext, ToolResult } from '@/server/tools/types'
+import { requestApproval } from '@/server/approval-registry'
 
 export type ExecutedResult = ToolResult & { callId: string }
 
@@ -15,6 +16,25 @@ async function executeOne(call: ToolCall, ctx: ToolContext): Promise<ExecutedRes
   const tool = getTool(call.toolName)
   if (!tool) {
     return { callId: call.callId, result: `未注册的工具: ${call.toolName}`, isError: true }
+  }
+
+  // human-in-the-loop：执行前审批判定。deny 直接拒；approve 挂起等前端确认，拒绝/超时不执行
+  if (tool.checkApproval) {
+    const check = tool.checkApproval(call.args)
+    if (check.verdict === 'deny') {
+      return { callId: call.callId, result: check.reason, isError: true }
+    }
+    if (check.verdict === 'approve') {
+      const approved = await requestApproval({
+        conversationId: ctx.conversationId,
+        callId: call.callId,
+        toolName: call.toolName,
+        summary: check.summary,
+      })
+      if (!approved) {
+        return { callId: call.callId, result: '用户拒绝执行该操作（或审批超时）', isError: true }
+      }
+    }
   }
 
   try {

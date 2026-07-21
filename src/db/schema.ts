@@ -62,6 +62,10 @@ export const agentRuns = sqliteTable('agent_runs', {
   triggerMessageId: text('trigger_message_id').notNull(),
   status: text('status', { enum: ['running', 'complete', 'failed', 'aborted'] }).notNull().default('running'),
   error: text('error'),
+  modelId: text('model_id'),  // 本次 run 使用的模型（token 统计按模型分组用）
+  promptTokens: integer('prompt_tokens').notNull().default(0),
+  completionTokens: integer('completion_tokens').notNull().default(0),
+  totalTokens: integer('total_tokens').notNull().default(0),
   startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
   finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
 })

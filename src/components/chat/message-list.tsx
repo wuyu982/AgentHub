@@ -13,22 +13,42 @@ interface MessageListProps {
   messages: MessageRecord[]
 }
 
+// 距底多少 px 内视为「贴着底部」，此时新消息自动滚动跟随；用户上翻超出则不打扰
+const NEAR_BOTTOM_PX = 120
+
 export function MessageList({ messages }: MessageListProps) {
   const agents = useAppStore((s) => s.agents)
+  const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
+  // 是否贴底：贴底才自动跟随流式；用户主动上翻则暂停跟随，避免被强行拉回
+  const atBottomRef = useRef(true)
+
+  const handleScroll = () => {
+    const el = scrollRef.current
+    if (!el) return
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < NEAR_BOTTOM_PX
+  }
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (atBottomRef.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages.length, messages[messages.length - 1]?.parts])
 
   const getAgent = (agentId: string | null) =>
     agentId ? agents.find((a) => a.id === agentId) ?? null : null
 
   return (
-    <div className="flex-1 overflow-y-auto p-4">
+    <div ref={scrollRef} onScroll={handleScroll} className="flex-1 overflow-y-auto p-4">
       <div className="mx-auto max-w-3xl space-y-5">
-        {messages.map((msg) => (
-          <MessageRow key={msg.id} msg={msg} agent={getAgent(msg.agentId)} />
+        {messages.map((msg, i) => (
+          <MessageRow
+            key={msg.id}
+            msg={msg}
+            agent={getAgent(msg.agentId)}
+            // 仅最后一条（新到达的）播放进入动画，历史消息不重放
+            animate={i === messages.length - 1}
+          />
         ))}
         <div ref={bottomRef} />
       </div>
@@ -41,12 +61,20 @@ const fmtTime = (ts: number) =>
 
 // memo：只有 msg 引用变化的那条消息重渲染（Immer 保证未变的消息保持同引用），
 // 流式期间历史消息整行跳过，不再全量重解析 markdown
-const MessageRow = memo(function MessageRow({ msg, agent }: { msg: MessageRecord; agent: AgentRecord | null }) {
+const MessageRow = memo(function MessageRow({
+  msg,
+  agent,
+  animate,
+}: {
+  msg: MessageRecord
+  agent: AgentRecord | null
+  animate?: boolean
+}) {
   const isUser = msg.role === 'user'
   const accent = agentAccent(msg.agentId)
 
   return (
-    <div className={cn('flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row')}>
+    <div className={cn('flex gap-2.5', isUser ? 'flex-row-reverse' : 'flex-row', animate && 'animate-message-in')}>
       {/* 头像 */}
       <div
         className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-sm"
@@ -126,17 +154,7 @@ function PartView({ part, isUser, isThinking }: { part: MessagePart; isUser: boo
     return <ThinkingPart content={part.content} active={!!isThinking} />
   }
   if (part.type === 'tool_use') {
-    return (
-      <details className="my-1.5 rounded-lg border border-border/60 bg-background/50 text-xs">
-        <summary className="flex cursor-pointer items-center gap-1.5 px-2.5 py-1.5 font-medium">
-          <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
-          调用工具 <span className="font-mono">{part.toolName}</span>
-        </summary>
-        <pre className="overflow-x-auto border-t px-2.5 py-1.5 text-muted-foreground">
-          {JSON.stringify(part.args, null, 2)}
-        </pre>
-      </details>
-    )
+    return <ToolUsePart callId={part.callId} toolName={part.toolName} args={part.args} />
   }
   if (part.type === 'tool_result') {
     return (
@@ -160,6 +178,67 @@ function PartView({ part, isUser, isThinking }: { part: MessagePart; isUser: boo
     return <ArtifactCard artifactId={part.artifactId} />
   }
   return null
+}
+
+// 工具调用卡片；若该 callId 处于待审批态，卡片内嵌批准/拒绝按钮（human-in-the-loop）
+function ToolUsePart({ callId, toolName, args }: { callId: string; toolName: string; args: unknown }) {
+  const approval = useAppStore((s) => s.pendingApprovals[callId])
+  const clearApproval = useAppStore((s) => s.clearApproval)
+  const [submitting, setSubmitting] = useState(false)
+
+  const decide = async (approved: boolean) => {
+    setSubmitting(true)
+    try {
+      await fetch(`/api/approvals/${callId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ approved }),
+      })
+    } catch {
+      // 网络失败不阻塞：本地清掉待审态，后端超时会兜底按拒绝处理
+    } finally {
+      clearApproval(callId)
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="my-1.5 rounded-lg border border-border/60 bg-background/50 text-xs">
+      <details>
+        <summary className="flex cursor-pointer items-center gap-1.5 px-2.5 py-1.5 font-medium">
+          <Wrench className="h-3.5 w-3.5 text-muted-foreground" />
+          调用工具 <span className="font-mono">{toolName}</span>
+        </summary>
+        <pre className="overflow-x-auto border-t px-2.5 py-1.5 text-muted-foreground">
+          {JSON.stringify(args, null, 2)}
+        </pre>
+      </details>
+
+      {approval && (
+        <div className="flex items-center justify-between gap-2 border-t border-amber-500/40 bg-amber-500/10 px-2.5 py-2">
+          <span className="min-w-0 flex-1 truncate text-amber-700 dark:text-amber-400">
+            ⚠ 等待确认：{approval.summary}
+          </span>
+          <div className="flex shrink-0 gap-1.5">
+            <button
+              disabled={submitting}
+              onClick={() => decide(true)}
+              className="rounded-md bg-green-600 px-2.5 py-1 font-medium text-white hover:bg-green-700 disabled:opacity-50"
+            >
+              批准
+            </button>
+            <button
+              disabled={submitting}
+              onClick={() => decide(false)}
+              className="rounded-md bg-muted px-2.5 py-1 font-medium hover:bg-muted-foreground/20 disabled:opacity-50"
+            >
+              拒绝
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
 }
 
 // 思考进行时默认展开、结束时自动折叠；折叠后用户仍可手动点开回看
