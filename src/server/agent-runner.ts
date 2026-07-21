@@ -7,7 +7,7 @@ import {resolveTools, toToolSchemas} from "@/server/tools/registry";
 import {executeTools} from "@/server/tools/executor";
 import {nanoid} from "nanoid";
 import {db} from "@/db/client";
-import {agents, messages} from "@/db/schema";
+import {agents, messages, agentRuns} from "@/db/schema";
 import {eq} from "drizzle-orm";
 import {eventBus} from "@/server/event-bus";
 import {withSpan} from "@/server/tracing/span";
@@ -126,6 +126,10 @@ export async function runAgent(
     const parts: MessagePart[] = []
     let partIndex = -1
     let finalText = ''
+    // 跨轮累加 token 用量（一个 run 含多轮 LLM 调用）
+    let promptTokens = 0
+    let completionTokens = 0
+    let totalTokens = 0
 
     // TTFT：从进入执行到首个 text.delta 的毫秒数；首个工具调用同理（衡量 agent 决策延迟）
     const runStartedAt = Date.now()
@@ -255,6 +259,13 @@ export async function runAgent(
                         break
                     }
 
+                    case 'usage': {
+                        promptTokens += event.promptTokens
+                        completionTokens += event.completionTokens
+                        totalTokens += event.totalTokens
+                        break
+                    }
+
                     case 'done':
                         break
                 }
@@ -337,6 +348,21 @@ export async function runAgent(
             createdAt: new Date(),
         })
 
+        // 落 agentRuns：token 用量按 run 聚合，供 monitor 统计（模型分组用 credentials.model）
+        await db.insert(agentRuns).values({
+            id: runId,
+            conversationId,
+            agentId,
+            triggerMessageId,
+            status: 'complete',
+            modelId: credentials.model,
+            promptTokens,
+            completionTokens,
+            totalTokens,
+            startedAt: new Date(runStartedAt),
+            finishedAt: new Date(),
+        })
+
         eventBus.emit({
             type: "message.end",
             conversationId,
@@ -360,11 +386,33 @@ export async function runAgent(
             totalMs,
             outputChars: totalTextLen,
             charsPerSec: totalMs > 0 ? Math.round((totalTextLen / totalMs) * 1000) : undefined,
+            promptTokens,
+            completionTokens,
+            totalTokens,
           },
         })
         return finalText
       })
     } catch (err) {
+        // 失败也落 run（含已累计 token），保证 monitor 统计不漏；落库失败不掩盖原始错误
+        try {
+            await db.insert(agentRuns).values({
+                id: runId,
+                conversationId,
+                agentId,
+                triggerMessageId,
+                status: 'failed',
+                error: err instanceof Error ? err.message : String(err),
+                modelId: credentials.model,
+                promptTokens,
+                completionTokens,
+                totalTokens,
+                startedAt: new Date(runStartedAt),
+                finishedAt: new Date(),
+            })
+        } catch (persistErr) {
+            console.error('[runner] 落 failed run 失败:', persistErr)
+        }
         // 失败时通知前端，不吞掉错误上下文
         eventBus.emit({
             type: "run.end",

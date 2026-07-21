@@ -83,6 +83,7 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
         messages: toOpenAIMessages(request.systemPrompt, request.messages),
         ...(toOpenAITools(request.tools) ? { tools: toOpenAITools(request.tools) } : {}),
         stream: true,
+        stream_options: { include_usage: true }, // 末尾 chunk 附带 token usage
       },
       { signal },
     )
@@ -90,9 +91,18 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
     let thinkingStarted = false
     let textStarted = false
     const pending = new Map<number, PendingToolCall>()
+    let usage: { promptTokens: number; completionTokens: number; totalTokens: number } | null = null
 
     for await (const chunk of stream) {
       if (signal.aborted) break
+      // usage 通常在最后一个 chunk（choices 为空数组）；记下等流末统一吐
+      if (chunk.usage) {
+        usage = {
+          promptTokens: chunk.usage.prompt_tokens ?? 0,
+          completionTokens: chunk.usage.completion_tokens ?? 0,
+          totalTokens: chunk.usage.total_tokens ?? 0,
+        }
+      }
       const choice = chunk.choices[0]
       const delta = choice?.delta
 
@@ -143,6 +153,7 @@ export class OpenAICompatibleAdapter implements LLMAdapter {
       yield { type: 'tool.call', callId: slot.callId, toolName: slot.toolName, args }
     }
 
+    if (usage) yield { type: 'usage', ...usage }
     yield { type: 'done' }
   }
 

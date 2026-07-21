@@ -36,6 +36,7 @@ export type AdapterEvent =
     | { type: 'text.delta'; text: string}
     | { type: 'text.end'}
     | { type: 'tool.call'; callId: string; toolName: string; args: unknown}
+    | { type: 'usage'; promptTokens: number; completionTokens: number; totalTokens: number} // 一轮调用的 token 用量（provider 返回，可缺失）
     | { type: 'done'}
 
 export interface LLMAdapter {

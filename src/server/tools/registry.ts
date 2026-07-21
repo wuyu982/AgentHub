@@ -8,6 +8,7 @@ import { dispatchToAgent } from '@/server/tools/builtin/dispatch-to-agent'
 import { ragSearch } from '@/server/tools/builtin/rag-search'
 import { fsRead } from '@/server/tools/builtin/fs-read'
 import { fsWrite } from '@/server/tools/builtin/fs-write'
+import { bash } from '@/server/tools/builtin/bash'
 import { createArtifact } from '@/server/tools/builtin/create-artifact'
 
 const REGISTRY = new Map<string, ToolDef>()
@@ -23,6 +24,7 @@ registerTool(dispatchToAgent)
 registerTool(ragSearch)
 registerTool(fsRead)
 registerTool(fsWrite)
+registerTool(bash)
 registerTool(createArtifact)
 
 export function getTool(name: string): ToolDef | undefined {

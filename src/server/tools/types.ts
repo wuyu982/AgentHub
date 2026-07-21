@@ -38,11 +38,19 @@ export interface ToolResult {
   isError: boolean // 对应 MessagePart.tool_result.isError
 }
 
+// 审批判定：'skip'=无需审批直跑；'approve'=需人工审批（summary 给用户看批的是什么）；'deny'=硬拒不执行
+export type ApprovalCheck =
+  | { verdict: 'skip' }
+  | { verdict: 'approve'; summary: string }
+  | { verdict: 'deny'; reason: string }
+
 export interface ToolDef {
   name: string // 唯一标识，对应 Agent.toolNames 里的字符串
   description: string // 给 LLM 看的用途说明
   parameters: JSONSchema // 直接喂 adapter 的 tools 字段
   execute(args: unknown, ctx: ToolContext): Promise<ToolResult> // args 不可信，内部自行 narrow
+  // 可选：执行前的审批判定（human-in-the-loop）。不实现 = 永远直跑。executor 据此决定是否挂起
+  checkApproval?(args: unknown): ApprovalCheck
 }
 
 // runner 从 adapter 的 tool.call 收集来的调用

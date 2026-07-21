@@ -25,6 +25,13 @@ export const fsWrite: ToolDef = {
     },
     required: ['path', 'content'],
   },
+  // fs_write 恒需审批：写文件有副作用，执行前弹确认（human-in-the-loop）
+  checkApproval(args) {
+    const parsed = argsSchema.safeParse(args)
+    if (!parsed.success) return { verdict: 'skip' } // 参数非法交给 execute 报错
+    const bytes = Buffer.byteLength(parsed.data.content, 'utf8')
+    return { verdict: 'approve', summary: `写入文件 ${parsed.data.path}（${bytes} 字节）` }
+  },
   async execute(args, ctx) {
     const parsed = argsSchema.safeParse(args)
     if (!parsed.success) {
