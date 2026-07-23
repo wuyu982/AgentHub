@@ -253,8 +253,11 @@ L1  Persistence         src/db/** + Milvus client
 
 **增量 3｜bash 工具**
 - [x] bash 工具：cwd 强制 workspace root + 命令白名单（§5.3），Windows shell 差异处理
-  - 三道闸：禁 shell 元字符（防注入/链式，强制单条命令）→ 命令白名单（危险命令拒绝，提示"需人工审批"）→ 超时 60s + 输出各 100k 截断 + 尊重 abort
-  - `validateCommand` 抽纯函数单测（8 通过）；Windows 优先复用 SHELL(Git Bash) 退回系统默认
+  - 安全收口：输入改为 `{ program, args[] }`，使用 `spawn(program, args, { shell: false })`，不再把整段字符串交给 shell 解释
+  - 受限只读命令直接执行；构建/运行命令需人工审批；shell、内联代码、安装依赖、未知程序、越界路径和环境变量引用硬拒绝
+  - 子进程使用最小化环境变量，临时目录与 HOME 落在会话 workspace；不继承 LLM/RAG API Key
+  - fs_read/fs_write/bash 的文件参数增加 realpath + 符号链接/Windows 目录联接检查，写入父目录逐级安全创建
+  - `validateCommand` 与 workspace 安全测试覆盖参数边界、解释器绕过、路径逃逸、链接逃逸和环境隔离
 - [x] fs_write / bash 审批机制（human-in-the-loop：写前发 SSE 事件、暂停 tool-loop 等确认）——同时覆盖 fs_write 与 bash
   - 审批注册表（挂起 Promise + 5min 超时按拒绝）+ `POST /api/approvals/[callId]` 确认通道
   - 新增 `approval.request` StreamEvent（不新增 part 类型，瞬态叠加在 tool_use 卡片）；`ToolDef.checkApproval` 三档判定 skip/approve/deny
@@ -268,6 +271,9 @@ L1  Persistence         src/db/** + Milvus client
 - Artifact 来源用显式 `create_artifact` 工具（契合工具范式），非文件目录约定/文本解析（后者违 §3.4）
 
 ### Phase 6: 打磨 + 桌面版（仅剩 Electron 打包）
+- [x] 工程门禁收口：ESLint 9 flat config；统一 `pnpm test` / `pnpm check`；修正 Next workspace root，并外部化 Milvus/OpenTelemetry Node 依赖，lint/typecheck/test/build 可一键验证
+- [x] API 输入边界收口：Agent / Conversation / ModelConfig / Settings 的 JSON body 使用严格 Zod schema；所有 JSON API 对损坏 JSON、未知字段和错误类型统一返回 400
+- [x] ModelConfig 默认不变量：SQLite 部分唯一索引保证至多一条默认；创建/切换在事务内完成，首条自动默认，当前默认不可直接取消，历史零默认状态可自动修复
 - [x] 模型配置独立实体（`ModelConfig`）：抽离 Agent 内嵌的模型字段为独立实体，Agent 纯引用 `modelConfigId`；左侧「模型」栏 CRUD（列表+详情），Agent 只需下拉选择
   - 凭证解析改走 ModelConfig：`resolveCredentials(modelConfigId)` → 指定/默认/env 三级兜底（见 CLAUDE.md §5.2）
   - key 脱敏：所有面向前端的 API 经 `toModelConfigView` 只回 `hasApiKey`，明文绝不出服务端；PUT 留空视作不修改
