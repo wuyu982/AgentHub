@@ -8,6 +8,7 @@ import { db } from '@/db/client'
 import { agents } from '@/db/schema'
 import { asc } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
+import { createAgentBodySchema } from '@/app/api/request-schemas'
 
 export async function GET() {
   const list = await db.select().from(agents).orderBy(asc(agents.createdAt))
@@ -15,26 +16,17 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const {
-    name,
-    avatar = '🤖',
-    description = '',
-    systemPrompt = '',
-    modelConfigId = null,
-    toolNames = [],
-    knowledgeBaseIds = [],
-  } = body
+  const parsed = createAgentBodySchema.safeParse(await req.json().catch(() => null))
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: '请求参数错误', details: parsed.error.flatten() },
+      { status: 400 },
+    )
+  }
 
   const agent = {
+    ...parsed.data,
     id: nanoid(),
-    name,
-    avatar,
-    description,
-    systemPrompt,
-    modelConfigId,
-    toolNames,
-    knowledgeBaseIds,
     isBuiltin: false,
     isOrchestrator: false,
     createdAt: new Date(),

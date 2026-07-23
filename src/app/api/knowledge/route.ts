@@ -17,7 +17,7 @@ const createSchema = z.object({
   name: z.string().min(1),
   description: z.string().optional(),
   embeddingModel: z.string().optional(), // 空则用全局默认 embedding 模型
-})
+}).strict()
 
 export async function GET() {
   const list = await db.select().from(knowledgeBases).orderBy(desc(knowledgeBases.createdAt))
@@ -25,7 +25,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const parsed = createSchema.safeParse(await req.json())
+  const parsed = createSchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
     return NextResponse.json({ error: `参数非法: ${parsed.error.message}` }, { status: 400 })
   }

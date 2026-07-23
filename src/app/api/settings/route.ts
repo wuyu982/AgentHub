@@ -6,6 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { db } from '@/db/client'
 import { appSettings } from '@/db/schema'
+import { updateSettingsBodySchema } from '@/app/api/request-schemas'
 
 // 敏感 key：值绝不回前端，只暴露"是否已配置"
 const SECRET_KEYS = new Set(['embedding_api_key', 'rerank_api_key'])
@@ -29,9 +30,16 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const body = (await req.json()) as Record<string, string>
+  const parsed = updateSettingsBodySchema.safeParse(await req.json().catch(() => null))
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: '请求参数错误', details: parsed.error.flatten() },
+      { status: 400 },
+    )
+  }
 
-  for (const [key, value] of Object.entries(body)) {
+  for (const [key, value] of Object.entries(parsed.data)) {
+    if (value === undefined) continue
     // 敏感 key 留空 = 不修改（保留已有值，避免前端占位符空值误清）
     if (SECRET_KEYS.has(key) && value === '') continue
     await db

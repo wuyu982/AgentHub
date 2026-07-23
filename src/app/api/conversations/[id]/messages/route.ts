@@ -14,7 +14,7 @@ import { routeToAgent } from '@/server/agent-router'
 const messageBodySchema = z.object({
   content: z.string().min(1),
   mentionedAgentIds: z.array(z.string()).default([]),
-})
+}).strict()
 
 export async function POST(
   req: NextRequest,
@@ -22,7 +22,7 @@ export async function POST(
 ) {
   const { id: conversationId } = await params
 
-  const parsed = messageBodySchema.safeParse(await req.json())
+  const parsed = messageBodySchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'Invalid request body', details: parsed.error.flatten() },

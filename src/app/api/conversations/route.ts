@@ -8,6 +8,7 @@ import { db } from '@/db/client'
 import { conversations } from '@/db/schema'
 import { desc } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
+import { createConversationBodySchema } from '@/app/api/request-schemas'
 
 export async function GET() {
   const list = await db.select().from(conversations).orderBy(desc(conversations.updatedAt))
@@ -15,14 +16,20 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const { title, mode = 'single', agentIds = [] } = body
+  const parsed = createConversationBodySchema.safeParse(await req.json().catch(() => null))
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: '请求参数错误', details: parsed.error.flatten() },
+      { status: 400 },
+    )
+  }
+  const { title, mode, agentIds } = parsed.data
 
   const now = new Date()
   const conversation = {
     id: nanoid(),
     title: title || '新对话',
-    mode: mode as 'single' | 'group',
+    mode,
     agentIds,
     createdAt: now,
     updatedAt: now,

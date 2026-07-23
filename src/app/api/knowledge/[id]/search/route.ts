@@ -12,11 +12,11 @@ import { retrieve } from '@/server/rag/retrieval-service'
 const searchSchema = z.object({
   query: z.string().min(1),
   kbHint: z.string().optional(),
-})
+}).strict()
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const parsed = searchSchema.safeParse(await req.json())
+  const parsed = searchSchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
     return NextResponse.json({ error: `参数非法: ${parsed.error.message}` }, { status: 400 })
   }

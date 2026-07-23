@@ -8,7 +8,7 @@ import { resolveApproval } from '@/server/approval-registry'
 
 const bodySchema = z.object({
   approved: z.boolean(),
-})
+}).strict()
 
 export async function POST(
   req: NextRequest,
@@ -16,7 +16,7 @@ export async function POST(
 ) {
   const { callId } = await params
 
-  const parsed = bodySchema.safeParse(await req.json())
+  const parsed = bodySchema.safeParse(await req.json().catch(() => null))
   if (!parsed.success) {
     return NextResponse.json(
       { error: 'Invalid request body', details: parsed.error.flatten() },
