@@ -8,38 +8,59 @@ import { db } from '@/db/client'
 import { modelConfigs, agents } from '@/db/schema'
 import { eq, and, ne } from 'drizzle-orm'
 import { toModelConfigView } from '@/lib/model-config-view'
-
-const EDITABLE_KEYS = ['name', 'adapterName', 'provider', 'modelId', 'baseURL', 'apiKey', 'isDefault'] as const
+import { updateModelConfigBodySchema } from '@/app/api/request-schemas'
+import { resolveUpdatedDefault } from '@/lib/model-config-default'
 
 export async function PUT(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const [existing] = await db.select().from(modelConfigs).where(eq(modelConfigs.id, id))
-  if (!existing) return NextResponse.json({ error: '模型配置不存在' }, { status: 404 })
-
-  const body = await req.json()
-  const patch: Record<string, unknown> = {}
-  for (const key of EDITABLE_KEYS) {
-    if (key in body) patch[key] = body[key]
+  const parsed = updateModelConfigBodySchema.safeParse(await req.json().catch(() => null))
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: '请求参数错误', details: parsed.error.flatten() },
+      { status: 400 },
+    )
   }
+  const patch = parsed.data
   // apiKey 空串/空白视作"不修改"，避免前端留空回显误清原 key
   if (typeof patch.apiKey === 'string' && !patch.apiKey.trim()) {
     delete patch.apiKey
   }
   if (Object.keys(patch).length === 0) {
-    return NextResponse.json({ error: '没有可更新的字段' }, { status: 400 })
+    return NextResponse.json({ error: '请求参数错误：没有可更新的字段' }, { status: 400 })
   }
 
-  // 设为默认时，清掉其他配置的默认标记
-  if (patch.isDefault === true) {
-    await db
-      .update(modelConfigs)
-      .set({ isDefault: false })
-      .where(and(eq(modelConfigs.isDefault, true), ne(modelConfigs.id, id)))
-  }
+  const result = await db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(modelConfigs).where(eq(modelConfigs.id, id))
+    if (!existing) return { status: 'not_found' } as const
 
-  await db.update(modelConfigs).set(patch).where(eq(modelConfigs.id, id))
-  const [updated] = await db.select().from(modelConfigs).where(eq(modelConfigs.id, id))
-  return NextResponse.json(toModelConfigView(updated))
+    const [currentDefault] = await tx
+      .select({ id: modelConfigs.id })
+      .from(modelConfigs)
+      .where(eq(modelConfigs.isDefault, true))
+    const decision = resolveUpdatedDefault(existing.isDefault, patch.isDefault, !!currentDefault)
+    if (!decision.allowed) return { status: 'conflict', error: decision.error } as const
+
+    if (decision.isDefault !== undefined) patch.isDefault = decision.isDefault
+    if (decision.clearOtherDefaults) {
+      await tx
+        .update(modelConfigs)
+        .set({ isDefault: false })
+        .where(and(eq(modelConfigs.isDefault, true), ne(modelConfigs.id, id)))
+    }
+
+    await tx.update(modelConfigs).set(patch).where(eq(modelConfigs.id, id))
+    const [updated] = await tx.select().from(modelConfigs).where(eq(modelConfigs.id, id))
+    if (!updated) return { status: 'not_found' } as const
+    return { status: 'updated', updated } as const
+  })
+
+  if (result.status === 'not_found') {
+    return NextResponse.json({ error: '模型配置不存在' }, { status: 404 })
+  }
+  if (result.status === 'conflict') {
+    return NextResponse.json({ error: result.error }, { status: 409 })
+  }
+  return NextResponse.json(toModelConfigView(result.updated))
 }
 
 export async function DELETE(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {

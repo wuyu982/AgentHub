@@ -9,6 +9,8 @@ import { modelConfigs } from '@/db/schema'
 import { asc, eq } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import { toModelConfigView } from '@/lib/model-config-view'
+import { createModelConfigBodySchema } from '@/app/api/request-schemas'
+import { resolveCreatedDefault } from '@/lib/model-config-default'
 
 export async function GET() {
   const list = await db.select().from(modelConfigs).orderBy(asc(modelConfigs.createdAt))
@@ -16,38 +18,31 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const {
-    name,
-    adapterName = 'openai-compatible',
-    provider = null,
-    modelId = null,
-    baseURL = null,
-    apiKey = null,
-    isDefault = false,
-  } = body
-
-  if (!name?.trim()) {
-    return NextResponse.json({ error: '模型配置名称不能为空' }, { status: 400 })
+  const parsed = createModelConfigBodySchema.safeParse(await req.json().catch(() => null))
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: '请求参数错误', details: parsed.error.flatten() },
+      { status: 400 },
+    )
   }
+  const config = await db.transaction(async (tx) => {
+    const [currentDefault] = await tx
+      .select({ id: modelConfigs.id })
+      .from(modelConfigs)
+      .where(eq(modelConfigs.isDefault, true))
+    const created = {
+      ...parsed.data,
+      id: nanoid(),
+      isDefault: resolveCreatedDefault(parsed.data.isDefault, !!currentDefault),
+      createdAt: new Date(),
+    }
 
-  const config = {
-    id: nanoid(),
-    name,
-    adapterName,
-    provider,
-    modelId,
-    baseURL,
-    apiKey,
-    isDefault,
-    createdAt: new Date(),
-  }
+    if (created.isDefault && currentDefault) {
+      await tx.update(modelConfigs).set({ isDefault: false }).where(eq(modelConfigs.isDefault, true))
+    }
+    await tx.insert(modelConfigs).values(created)
+    return created
+  })
 
-  // 设为默认时，清掉其他配置的默认标记（保证全局唯一默认）
-  if (isDefault) {
-    await db.update(modelConfigs).set({ isDefault: false }).where(eq(modelConfigs.isDefault, true))
-  }
-
-  await db.insert(modelConfigs).values(config)
   return NextResponse.json(toModelConfigView(config), { status: 201 })
 }

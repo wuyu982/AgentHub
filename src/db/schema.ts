@@ -1,4 +1,5 @@
-import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core'
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import { sql } from 'drizzle-orm'
 
 // ─── Model Configs ──────────────────────────────────────────
 // 一次 LLM 调用所需的全部凭证，独立于 Agent；Agent 通过 modelConfigId 引用。
@@ -13,7 +14,11 @@ export const modelConfigs = sqliteTable('model_configs', {
   apiKey: text('api_key'),
   isDefault: integer('is_default', { mode: 'boolean' }).notNull().default(false), // Agent 未指定时的兜底
   createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-})
+}, (table) => [
+  uniqueIndex('model_configs_single_default')
+    .on(table.isDefault)
+    .where(sql`${table.isDefault} = 1`),
+])
 
 // ─── Agents ─────────────────────────────────────────────────
 export const agents = sqliteTable('agents', {
