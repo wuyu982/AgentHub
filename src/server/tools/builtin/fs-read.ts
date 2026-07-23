@@ -1,11 +1,11 @@
 /**
- * fs_read —— 读取会话工作区内的文件。路径经 resolveInWorkspace 校验，无法越界（§5.3）。
+ * fs_read —— 读取会话工作区内的文件。路径经过词法、realpath 与链接检查（§5.3）。
  * 超过 256KB 截断并提示（防止撑爆 LLM 上下文）。
  */
 import { z } from 'zod'
 import fs from 'node:fs/promises'
 import type { ToolDef } from '@/server/tools/types'
-import { resolveInWorkspace } from '@/server/tools/workspace'
+import { resolveExistingInWorkspace } from '@/server/tools/workspace'
 
 const MAX_READ_BYTES = 256 * 1024
 
@@ -35,8 +35,10 @@ export const fsRead: ToolDef = {
 
     let abs: string
     try {
-      abs = resolveInWorkspace(ctx.workspaceRoot, parsed.data.path)
+      abs = await resolveExistingInWorkspace(ctx.workspaceRoot, parsed.data.path)
     } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') return { result: `文件不存在: ${parsed.data.path}`, isError: true }
       return { result: err instanceof Error ? err.message : String(err), isError: true }
     }
 
