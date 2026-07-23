@@ -22,6 +22,7 @@ export function MessageList({ messages }: MessageListProps) {
   const bottomRef = useRef<HTMLDivElement>(null)
   // 是否贴底：贴底才自动跟随流式；用户主动上翻则暂停跟随，避免被强行拉回
   const atBottomRef = useRef(true)
+  const lastMessageParts = messages.at(-1)?.parts
 
   const handleScroll = () => {
     const el = scrollRef.current
@@ -33,7 +34,7 @@ export function MessageList({ messages }: MessageListProps) {
     if (atBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
     }
-  }, [messages.length, messages[messages.length - 1]?.parts])
+  }, [messages.length, lastMessageParts])
 
   const getAgent = (agentId: string | null) =>
     agentId ? agents.find((a) => a.id === agentId) ?? null : null
